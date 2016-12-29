@@ -163,6 +163,7 @@ object FunctionRegistry {
     expression[Abs]("abs"),
     expression[Coalesce]("coalesce"),
     expression[Explode]("explode"),
+    expression[Field]("field"),
     expression[Greatest]("greatest"),
     expression[If]("if"),
     expression[Inline]("inline"),
