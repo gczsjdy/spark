@@ -421,8 +421,8 @@ case class Field(children: Seq[Expression]) extends Expression {
       ${target.code}
       boolean ${ev.isNull} = false;
       int ${ev.value} = 0;
-      ${rest.zip(restDataType).zipWithIndex.map(x => (x._1, x._2 + 1)).
-        filter(dataTypeEqualsTarget).map(updateEval).reduceRight(genIfElseStructure)}
+      ${rest.zip(restDataType).zipWithIndex.map(x => (x._1, x._2 + 1)).filter(
+        dataTypeEqualsTarget).map(updateEval).reduceRight(genIfElseStructure)}
       """)
   }
 }
