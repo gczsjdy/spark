@@ -726,4 +726,13 @@ class ColumnExpressionSuite extends QueryTest with SharedSQLContext {
       df.select(typedLit(("a", 2, 1.0))),
       Row(Row("a", 2, 1.0)) :: Nil)
   }
+
+  test("field") {
+    // scalastyle:off
+    // non ascii characters are not allowed in the code, so we disable the scalastyle here.
+    val testData = Seq((1, 2, 3)).toDF()
+    checkAnswer(testData.selectExpr("field('花花世界', 'a', 1.23, true, '花花世界')"), Row(4))
+    checkAnswer(testData.selectExpr("field(null, 'a', 1.23, true, null)"), Row(0))
+    // scalastyle:on
+  }
 }

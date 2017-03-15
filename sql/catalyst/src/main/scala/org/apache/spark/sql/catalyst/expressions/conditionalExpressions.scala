@@ -17,9 +17,12 @@
 
 package org.apache.spark.sql.catalyst.expressions
 
+import scala.annotation.tailrec
+
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
 import org.apache.spark.sql.catalyst.expressions.codegen._
+import org.apache.spark.sql.catalyst.util.TypeUtils
 import org.apache.spark.sql.types._
 
 // scalastyle:off line.size.limit
@@ -338,5 +341,107 @@ object CaseKeyWhen {
     }.toArray.toSeq  // force materialization to make the seq serializable
     val elseValue = if (branches.size % 2 == 1) Some(branches.last) else None
     CaseWhen(cases, elseValue)
+  }
+}
+
+/**
+ * A function that returns the index of expr in (expr1, expr2, ...) list or 0 if not found.
+ * It takes at least 2 parameters, and all parameters should be subtype of AtomicType or NullType.
+ * It's also acceptable to give parameters of different types. When the parameters have different
+ * types, comparing will be done based on type firstly. For example, ''999'' 's type is StringType,
+ * while 999's type is IntegerType, so that no further comparison need to be done since they have
+ * different types.
+ * If the search expression is NULL, the return value is 0 because NULL fails equality comparison
+ * with any value.
+ * To also point out, no implicit cast will be done in this expression.
+ */
+// scalastyle:off line.size.limit
+@ExpressionDescription(
+  usage = "_FUNC_(expr, expr1, expr2, ...) - Returns the index of expr in the expr1, expr2, ... or 0 if not found.",
+  extended = """
+    Examples:
+      > SELECT _FUNC_(10, 9, 3, 10, 4);
+       3
+      > SELECT _FUNC_('a', 'b', 'c', 'd', 'a');
+       4
+      > SELECT _FUNC_('999', 'a', 999, 9.99, '999');
+       4
+  """)
+// scalastyle:on line.size.limit
+case class Field(children: Seq[Expression]) extends Expression {
+
+  /** Even if expr is not found in (expr1, expr2, ...) list, the value will be 0, not null */
+  override def nullable: Boolean = false
+  override def foldable: Boolean = children.forall(_.foldable)
+
+  private lazy val ordering = TypeUtils.getInterpretedOrdering(children(0).dataType)
+
+  private val dataTypeMatchIndex: Array[Int] = children.zipWithIndex.tail.filter(
+    _._1.dataType.sameType(children.head.dataType)).map(_._2).toArray
+
+  override def checkInputDataTypes(): TypeCheckResult = {
+    if (children.length <= 1) {
+      TypeCheckResult.TypeCheckFailure(s"FIELD requires at least 2 arguments")
+    } else if (!children.forall(
+        e => e.dataType.isInstanceOf[AtomicType] || e.dataType.isInstanceOf[NullType])) {
+      TypeCheckResult.TypeCheckFailure(
+        s"FIELD requires all arguments to be of AtomicType or explicitly indicating NULL")
+    } else {
+      TypeCheckResult.TypeCheckSuccess
+    }
+  }
+
+  override def dataType: DataType = IntegerType
+  override def eval(input: InternalRow): Any = {
+    val target = children.head.eval(input)
+    @tailrec def findEqual(index: Int): Int = {
+      if (index == dataTypeMatchIndex.length) {
+        0
+      } else {
+        val value = children(dataTypeMatchIndex(index)).eval(input)
+        if (value != null && ordering.equiv(target, value)) {
+          dataTypeMatchIndex(index)
+        } else {
+          findEqual(index + 1)
+        }
+      }
+    }
+    if (target == null) 0 else findEqual(index = 0)
+  }
+
+  protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
+    val evalChildren = children.map(_.genCode(ctx))
+    val target = evalChildren(0)
+    val targetDataType = children(0).dataType
+    val dataTypes = children.map(_.dataType)
+
+    def updateEval(evalWithIndex: ((ExprCode, DataType), Int)): String = {
+      val ((eval, _), index) = evalWithIndex
+      s"""
+        ${eval.code}
+        if (${ctx.genEqual(targetDataType, eval.value, target.value)}) {
+          ${ev.value} = ${index};
+        }
+      """
+    }
+
+    def genIfElseStructure(code1: String, code2: String): String = {
+      s"""
+         ${code1}
+         else {
+          ${code2}
+         }
+       """
+    }
+
+    ev.copy(code = s"""
+      ${target.code}
+      boolean ${ev.isNull} = false;
+      int ${ev.value} = 0;
+      if (!${target.isNull}) {
+        ${evalChildren.zip(dataTypes).zipWithIndex.tail.filter(
+          x => dataTypeMatchIndex.contains(x._2)).map(updateEval).reduceRight(genIfElseStructure)}
+      }
+      """)
   }
 }
