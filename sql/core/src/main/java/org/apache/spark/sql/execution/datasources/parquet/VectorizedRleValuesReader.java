@@ -25,7 +25,8 @@ import org.apache.parquet.column.values.bitpacking.Packer;
 import org.apache.parquet.io.ParquetDecodingException;
 import org.apache.parquet.io.api.Binary;
 
-import org.apache.spark.sql.execution.vectorized.ColumnVector;
+import org.apache.spark.sql.execution.vectorized.ColumnVectorBase;
+import org.apache.spark.sql.execution.vectorized.ColumnVectorBase;
 
 /**
  * A values reader for Parquet's run-length encoded data. This is based off of the version in
@@ -177,8 +178,8 @@ public final class VectorizedRleValuesReader extends ValuesReader
    *    c[rowId] = null;
    *  }
    */
-  public void readIntegers(int total, ColumnVector c, int rowId, int level,
-      VectorizedValuesReader data) {
+  public void readIntegers(int total, ColumnVectorBase c, int rowId, int level,
+                           VectorizedValuesReader data) {
     int left = total;
     while (left > 0) {
       if (this.currentCount == 0) this.readNextGroup();
@@ -208,7 +209,7 @@ public final class VectorizedRleValuesReader extends ValuesReader
   }
 
   // TODO: can this code duplication be removed without a perf penalty?
-  public void readBooleans(int total, ColumnVector c,
+  public void readBooleans(int total, ColumnVectorBase c,
                         int rowId, int level, VectorizedValuesReader data) {
     int left = total;
     while (left > 0) {
@@ -238,7 +239,7 @@ public final class VectorizedRleValuesReader extends ValuesReader
     }
   }
 
-  public void readBytes(int total, ColumnVector c,
+  public void readBytes(int total, ColumnVectorBase c,
                         int rowId, int level, VectorizedValuesReader data) {
     int left = total;
     while (left > 0) {
@@ -268,7 +269,7 @@ public final class VectorizedRleValuesReader extends ValuesReader
     }
   }
 
-  public void readShorts(int total, ColumnVector c,
+  public void readShorts(int total, ColumnVectorBase c,
                         int rowId, int level, VectorizedValuesReader data) {
     int left = total;
     while (left > 0) {
@@ -300,7 +301,7 @@ public final class VectorizedRleValuesReader extends ValuesReader
     }
   }
 
-  public void readLongs(int total, ColumnVector c, int rowId, int level,
+  public void readLongs(int total, ColumnVectorBase c, int rowId, int level,
                         VectorizedValuesReader data) {
     int left = total;
     while (left > 0) {
@@ -330,7 +331,7 @@ public final class VectorizedRleValuesReader extends ValuesReader
     }
   }
 
-  public void readFloats(int total, ColumnVector c, int rowId, int level,
+  public void readFloats(int total, ColumnVectorBase c, int rowId, int level,
                         VectorizedValuesReader data) {
     int left = total;
     while (left > 0) {
@@ -360,7 +361,7 @@ public final class VectorizedRleValuesReader extends ValuesReader
     }
   }
 
-  public void readDoubles(int total, ColumnVector c, int rowId, int level,
+  public void readDoubles(int total, ColumnVectorBase c, int rowId, int level,
                          VectorizedValuesReader data) {
     int left = total;
     while (left > 0) {
@@ -390,7 +391,7 @@ public final class VectorizedRleValuesReader extends ValuesReader
     }
   }
 
-  public void readBinarys(int total, ColumnVector c, int rowId, int level,
+  public void readBinarys(int total, ColumnVectorBase c, int rowId, int level,
                         VectorizedValuesReader data) {
     int left = total;
     while (left > 0) {
@@ -424,7 +425,7 @@ public final class VectorizedRleValuesReader extends ValuesReader
    * Decoding for dictionary ids. The IDs are populated into `values` and the nullability is
    * populated into `nulls`.
    */
-  public void readIntegers(int total, ColumnVector values, ColumnVector nulls, int rowId, int level,
+  public void readIntegers(int total, ColumnVectorBase values, ColumnVectorBase nulls, int rowId, int level,
                            VectorizedValuesReader data) {
     int left = total;
     while (left > 0) {
@@ -459,7 +460,7 @@ public final class VectorizedRleValuesReader extends ValuesReader
   // IDs. This is different than the above APIs that decodes definitions levels along with values.
   // Since this is only used to decode dictionary IDs, only decoding integers is supported.
   @Override
-  public void readIntegers(int total, ColumnVector c, int rowId) {
+  public void readIntegers(int total, ColumnVectorBase c, int rowId) {
     int left = total;
     while (left > 0) {
       if (this.currentCount == 0) this.readNextGroup();
@@ -485,32 +486,32 @@ public final class VectorizedRleValuesReader extends ValuesReader
   }
 
   @Override
-  public void readBytes(int total, ColumnVector c, int rowId) {
+  public void readBytes(int total, ColumnVectorBase c, int rowId) {
     throw new UnsupportedOperationException("only readInts is valid.");
   }
 
   @Override
-  public void readLongs(int total, ColumnVector c, int rowId) {
+  public void readLongs(int total, ColumnVectorBase c, int rowId) {
     throw new UnsupportedOperationException("only readInts is valid.");
   }
 
   @Override
-  public void readBinary(int total, ColumnVector c, int rowId) {
+  public void readBinary(int total, ColumnVectorBase c, int rowId) {
     throw new UnsupportedOperationException("only readInts is valid.");
   }
 
   @Override
-  public void readBooleans(int total, ColumnVector c, int rowId) {
+  public void readBooleans(int total, ColumnVectorBase c, int rowId) {
     throw new UnsupportedOperationException("only readInts is valid.");
   }
 
   @Override
-  public void readFloats(int total, ColumnVector c, int rowId) {
+  public void readFloats(int total, ColumnVectorBase c, int rowId) {
     throw new UnsupportedOperationException("only readInts is valid.");
   }
 
   @Override
-  public void readDoubles(int total, ColumnVector c, int rowId) {
+  public void readDoubles(int total, ColumnVectorBase c, int rowId) {
     throw new UnsupportedOperationException("only readInts is valid.");
   }
 

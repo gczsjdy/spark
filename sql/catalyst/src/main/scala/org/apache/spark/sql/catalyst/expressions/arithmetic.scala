@@ -17,10 +17,12 @@
 
 package org.apache.spark.sql.catalyst.expressions
 
+import org.apache.spark.memory.MemoryMode
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
 import org.apache.spark.sql.catalyst.expressions.codegen._
 import org.apache.spark.sql.catalyst.util.TypeUtils
+import org.apache.spark.sql.execution.vectorized.{ColumnVectorBase, ColumnarBatchBase}
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.CalendarInterval
 
@@ -146,7 +148,7 @@ object BinaryArithmetic {
       > SELECT 1 _FUNC_ 2;
        3
   """)
-case class Add(left: Expression, right: Expression) extends BinaryArithmetic {
+case class Add(left: Expression, right: Expression) extends BinaryArithmetic with VectorizedSupport{
 
   override def inputType: AbstractDataType = TypeCollection.NumericAndInterval
 
@@ -172,6 +174,21 @@ case class Add(left: Expression, right: Expression) extends BinaryArithmetic {
       defineCodeGen(ctx, ev, (eval1, eval2) => s"$eval1.add($eval2)")
     case _ =>
       defineCodeGen(ctx, ev, (eval1, eval2) => s"$eval1 $symbol $eval2")
+  }
+
+  def vectorizedEval(input: ColumnarBatchBase): ColumnVectorBase = {
+    if (!left.isInstanceOf[VectorizedSupport] || !right.isInstanceOf[VectorizedSupport])
+      throw new UnsupportedOperationException("parameter not support vectorized")
+
+    val leftWithVectorizedSupport = left.asInstanceOf[VectorizedSupport]
+    val rightWithVectorizedSupport = right.asInstanceOf[VectorizedSupport]
+    val valueLeft = leftWithVectorizedSupport.vectorizedEval(input)
+    val valueRight = rightWithVectorizedSupport.vectorizedEval(input)
+
+    val size = valueLeft.allocateArray().numElements()
+    val result = ColumnVectorBase.allocate(size, IntegerType, MemoryMode.OFF_HEAP)
+    (0 until size).foreach(row => result.putInt(row, valueLeft.getInt(row) + valueRight.getInt(row)))
+    result
   }
 }
 

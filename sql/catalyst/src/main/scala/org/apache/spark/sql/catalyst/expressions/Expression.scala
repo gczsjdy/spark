@@ -23,6 +23,7 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
 import org.apache.spark.sql.catalyst.expressions.codegen._
 import org.apache.spark.sql.catalyst.trees.TreeNode
+import org.apache.spark.sql.execution.vectorized.{ColumnVectorBase, ColumnarBatchBase}
 import org.apache.spark.sql.types._
 import org.apache.spark.util.Utils
 
@@ -630,4 +631,8 @@ abstract class TernaryExpression extends Expression {
         $resultCode""", isNull = "false")
     }
   }
+}
+
+trait VectorizedSupport extends Expression{
+  def vectorizedEval(input: ColumnarBatchBase): ColumnVectorBase
 }

@@ -21,6 +21,7 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.errors.attachTree
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
+import org.apache.spark.sql.execution.vectorized.{ColumnVectorBase, ColumnarBatchBase}
 import org.apache.spark.sql.types._
 
 /**
@@ -29,7 +30,7 @@ import org.apache.spark.sql.types._
  * the layout of intermediate tuples, BindReferences should be run after all such transformations.
  */
 case class BoundReference(ordinal: Int, dataType: DataType, nullable: Boolean)
-  extends LeafExpression {
+  extends LeafExpression with VectorizedSupport{
 
   override def toString: String = s"input[$ordinal, ${dataType.simpleString}, $nullable]"
 
@@ -56,6 +57,10 @@ case class BoundReference(ordinal: Int, dataType: DataType, nullable: Boolean)
         case _ => input.get(ordinal, dataType)
       }
     }
+  }
+
+  override def vectorizedEval(input: ColumnarBatchBase): ColumnVectorBase = {
+    input.column(ordinal)
   }
 
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {

@@ -17,20 +17,25 @@
 
 package org.apache.spark.sql.execution
 
+import org.apache.spark.memory.MemoryMode
+
 import scala.concurrent.{ExecutionContext, Future}
 import scala.concurrent.duration.Duration
-
-import org.apache.spark.{InterruptibleIterator, SparkException, TaskContext}
+import org.apache.spark.{InterruptibleIterator, SparkEnv, SparkException, TaskContext}
 import org.apache.spark.rdd.{PartitionwiseSampledRDD, RDD}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode, ExpressionCanonicalizer}
 import org.apache.spark.sql.catalyst.plans.physical._
 import org.apache.spark.sql.execution.metric.SQLMetrics
-import org.apache.spark.sql.execution.ui.SparkListenerDriverAccumUpdates
-import org.apache.spark.sql.types.LongType
+import org.apache.spark.sql.execution.vectorized.{ColumnVectorBase, ColumnVectorUtils, ColumnarBatch, ColumnarBatchBase}
+import org.apache.spark.sql.types.{LongType, StructType}
 import org.apache.spark.util.ThreadUtils
 import org.apache.spark.util.random.{BernoulliCellSampler, PoissonSampler}
+import org.apache.spark.sql.catalyst.expressions.VectorizedInterpretedProjection
+
+import collection.JavaConverters._
+
 
 /** Physical plan for Project. */
 case class ProjectExec(projectList: Seq[NamedExpression], child: SparkPlan)
@@ -70,12 +75,31 @@ case class ProjectExec(projectList: Seq[NamedExpression], child: SparkPlan)
   }
 
   protected override def doExecute(): RDD[InternalRow] = {
-    child.execute().mapPartitionsWithIndexInternal { (index, iter) =>
-      val project = UnsafeProjection.create(projectList, child.output,
-        subexpressionEliminationEnabled)
-      project.initialize(index)
-      iter.map(project)
+    val columnarBatch = child.execute().mapPartitions[ColumnarBatch]{
+      (iter) => ColumnVectorUtils.fromInternalRowToBatch(
+       schema, MemoryMode.ON_HEAP, iter.asJava
+      ).asScala
     }
+
+    val projection = new VectorizedInterpretedProjection(projectList, output)
+
+    val rddProjectRes = columnarBatch.map[Seq[ColumnVectorBase]](projection(_))
+
+    val resColumnarBatch = ColumnarBatchBase.allocate(schema)
+    var rowNumber = 0
+    val seqOfSeqColumnVector = (0 until projectList.size).map{ (i) =>
+      rddProjectRes.reduce{ (seqVector, seqVector2) => seqVector :+ seqVector2(i)
+      }
+    }
+    val resSeqColumnVector = seqOfSeqColumnVector.map{
+      (seqOfColumnVectors: Seq[ColumnVectorBase]) => seqOfColumnVectors.tail.foreach{ vector =>
+          val array = vector.allocateArray()
+          seqOfColumnVectors(0).appendInts(array.numElements(), array.array().asInstanceOf[Array[Int]], 0)
+         }
+        seqOfColumnVectors(0)
+      }
+    (0 until projectList.length).foreach(i => resColumnarBatch.setColumn(i, resSeqColumnVector(i)))
+    child.sqlContext.sparkContext.parallelize(resColumnarBatch.rowIterator().asScala.toSeq)
   }
 
   override def outputOrdering: Seq[SortOrder] = child.outputOrdering

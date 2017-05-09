@@ -17,11 +17,13 @@
 
 package org.apache.spark.sql.execution
 
+import org.apache.spark.memory.MemoryMode
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Attribute, UnsafeProjection}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, UnsafeProjection, VectorizedInterpretedProjection}
 import org.apache.spark.sql.execution.metric.SQLMetrics
-
+import org.apache.spark.sql.execution.vectorized.{ColumnVectorBase, ColumnVectorUtils, ColumnarBatch, ColumnarBatchBase}
+import collection.JavaConverters._
 
 /**
  * Physical plan node for scanning data from a local collection.
@@ -37,8 +39,37 @@ case class LocalTableScanExec(
     if (rows.isEmpty) {
       Array.empty
     } else {
-      val proj = UnsafeProjection.create(output, output)
-      rows.map(r => proj(r).copy()).toArray
+
+      val projection = new VectorizedInterpretedProjection(output, output)
+
+      val columnarBatch= rows.grouped(1024).map{
+        (iter) => ColumnVectorUtils.fromInternalRowToBatch(
+        schema, MemoryMode.ON_HEAP, iter.asJava.iterator()
+      ).asScala
+      }
+//      val columnarBatch = child.execute().mapPartitions[ColumnarBatch]{
+//        (iter) => ColumnVectorUtils.fromInternalRowToBatch(
+//          schema, MemoryMode.ON_HEAP, iter.asJava
+//        ).asScala
+//      }
+
+      val rddProjectRes = columnarBatch.map[Seq[ColumnVectorBase]](projection(_))
+
+      val resColumnarBatch = ColumnarBatchBase.allocate(schema)
+      var rowNumber = 0
+      val seqOfSeqColumnVector = (0 until output.size).map{ (i) =>
+        rddProjectRes.reduce{ (seqVector, seqVector2) => seqVector :+ seqVector2(i)
+        }
+      }
+      val resSeqColumnVector = seqOfSeqColumnVector.map{
+        (seqOfColumnVectors: Seq[ColumnVectorBase]) => seqOfColumnVectors.tail.foreach{ vector =>
+          val array = vector.allocateArray()
+          seqOfColumnVectors(0).appendInts(array.numElements(), array.array().asInstanceOf[Array[Int]], 0)
+        }
+          seqOfColumnVectors(0)
+      }
+      (0 until output.length).foreach(i => resColumnarBatch.setColumn(i, resSeqColumnVector(i)))
+      resColumnarBatch.rowIterator().asScala.toArray
     }
   }
 
