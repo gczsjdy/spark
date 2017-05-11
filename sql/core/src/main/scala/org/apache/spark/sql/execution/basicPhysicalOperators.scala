@@ -98,9 +98,11 @@ case class ProjectExec(projectList: Seq[NamedExpression], child: SparkPlan)
         resColumnarBatch
     }
 
-    val converter = UnsafeProjection.create(projectList.map(_.dataType).toArray)
-
-    rddResColumnarBatch.flatMap(_.rowIterator().asScala.toSeq).map(converter.apply(_))
+    rddResColumnarBatch.flatMap(_.rowIterator().asScala.toSeq).mapPartitionsWithIndexInternal {(index, iter) =>
+      val converter = UnsafeProjection.create(projectList.map(_.dataType).toArray)
+      converter.initialize(index)
+      iter.map(converter)
+    }
   }
 
   override def outputOrdering: Seq[SortOrder] = child.outputOrdering

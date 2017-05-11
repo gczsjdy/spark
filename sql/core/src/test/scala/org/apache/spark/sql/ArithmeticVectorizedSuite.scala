@@ -20,11 +20,11 @@ class ArithmeticVectorizedSuite extends QueryTest with SharedSQLContext {
 
   }
   test("Vectorized add external table") {
-    withTable("tmp") {
-      spark.sql("create table tmp (value string)")
-      spark.sql("load data local inpath './sql/hive/src/test/resources/data/files/kv1.txt' into table tmp")
-
-    }
+//    withTable("tmp") {
+//      spark.sql("create table tmp (value string)")
+//      spark.sql("load data local inpath './sql/hive/src/test/resources/data/files/kv1.txt' into table tmp")
+//
+//    }
 
   }
 }
