@@ -75,31 +75,32 @@ case class ProjectExec(projectList: Seq[NamedExpression], child: SparkPlan)
   }
 
   protected override def doExecute(): RDD[InternalRow] = {
-    val columnarBatch = child.execute().mapPartitions[ColumnarBatch]{
+
+    //Convert InternalRows to ColumnarBatch
+    val columnarBatch = child.execute().mapPartitions[ColumnarBatchBase]{
       (iter) => ColumnVectorUtils.fromInternalRowToBatch(
        schema, MemoryMode.ON_HEAP, iter.asJava
       ).asScala
     }
+    val projection = new VectorizedInterpretedProjection(projectList, child.output)
 
-    val projection = new VectorizedInterpretedProjection(projectList, output)
-
-    val rddProjectRes = columnarBatch.map[Seq[ColumnVectorBase]](projection(_))
+    //RDD[Seq[ColumnVector]]  Apply Vectorized projection expression by calling VectorizedEval in expressions
+    val rddProjectRes = columnarBatch.map[Seq[ColumnVectorBase]](
+    x => projection(x))
 
     val resColumnarBatch = ColumnarBatchBase.allocate(schema)
-    var rowNumber = 0
-    val seqOfSeqColumnVector = (0 until projectList.size).map{ (i) =>
-      rddProjectRes.reduce{ (seqVector, seqVector2) => seqVector :+ seqVector2(i)
-      }
+
+    //Form the complete result columnar batch
+    val rddResColumnarBatch = rddProjectRes.map[ColumnarBatchBase]{
+      seqColumnVector =>
+        (0 until projectList.length).foreach(i => resColumnarBatch.setColumn(i, seqColumnVector(i)))
+        resColumnarBatch.setNumRows(seqColumnVector(0).getNumRows)
+        resColumnarBatch
     }
-    val resSeqColumnVector = seqOfSeqColumnVector.map{
-      (seqOfColumnVectors: Seq[ColumnVectorBase]) => seqOfColumnVectors.tail.foreach{ vector =>
-          val array = vector.allocateArray()
-          seqOfColumnVectors(0).appendInts(array.numElements(), array.array().asInstanceOf[Array[Int]], 0)
-         }
-        seqOfColumnVectors(0)
-      }
-    (0 until projectList.length).foreach(i => resColumnarBatch.setColumn(i, resSeqColumnVector(i)))
-    child.sqlContext.sparkContext.parallelize(resColumnarBatch.rowIterator().asScala.toSeq)
+
+    val converter = UnsafeProjection.create(projectList.map(_.dataType).toArray)
+
+    rddResColumnarBatch.flatMap(_.rowIterator().asScala.toSeq).map(converter.apply(_))
   }
 
   override def outputOrdering: Seq[SortOrder] = child.outputOrdering

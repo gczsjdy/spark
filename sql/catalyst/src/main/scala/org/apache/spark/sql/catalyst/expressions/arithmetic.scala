@@ -185,9 +185,11 @@ case class Add(left: Expression, right: Expression) extends BinaryArithmetic wit
     val valueLeft = leftWithVectorizedSupport.vectorizedEval(input)
     val valueRight = rightWithVectorizedSupport.vectorizedEval(input)
 
-    val size = valueLeft.allocateArray().numElements()
-    val result = ColumnVectorBase.allocate(size, IntegerType, MemoryMode.OFF_HEAP)
-    (0 until size).foreach(row => result.putInt(row, valueLeft.getInt(row) + valueRight.getInt(row)))
+    val size = valueLeft.getNumRows
+    val capacity = input.capacity()
+    val result = ColumnVectorBase.allocate(capacity, LongType, MemoryMode.ON_HEAP)
+    result.setNumRows(size)
+    (0 until size).foreach(row => result.putLong(row, valueLeft.getLong(row) + valueRight.getLong(row)))
     result
   }
 }

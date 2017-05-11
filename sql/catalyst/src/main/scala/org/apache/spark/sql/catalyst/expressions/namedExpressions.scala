@@ -24,6 +24,7 @@ import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
 import org.apache.spark.sql.catalyst.expressions.codegen._
 import org.apache.spark.sql.catalyst.plans.logical.EventTimeWatermark
 import org.apache.spark.sql.catalyst.util.quoteIdentifier
+import org.apache.spark.sql.execution.vectorized.{ColumnVectorBase, ColumnarBatchBase}
 import org.apache.spark.sql.types._
 
 object NamedExpression {
@@ -135,13 +136,16 @@ case class Alias(child: Expression, name: String)(
     val qualifier: Option[String] = None,
     val explicitMetadata: Option[Metadata] = None,
     override val isGenerated: java.lang.Boolean = false)
-  extends UnaryExpression with NamedExpression {
+  extends UnaryExpression with NamedExpression with VectorizedSupport {
 
   // Alias(Generator, xx) need to be transformed into Generate(generator, ...)
   override lazy val resolved =
     childrenResolved && checkInputDataTypes().isSuccess && !child.isInstanceOf[Generator]
 
   override def eval(input: InternalRow): Any = child.eval(input)
+
+  override def vectorizedEval(input: ColumnarBatchBase): ColumnVectorBase = child.asInstanceOf[VectorizedSupport].vectorizedEval(input)
+
 
   /** Just a simple passthrough for code generation. */
   override def genCode(ctx: CodegenContext): ExprCode = child.genCode(ctx)
@@ -193,6 +197,7 @@ case class Alias(child: Expression, name: String)(
     val qualifierPrefix = qualifier.map(_ + ".").getOrElse("")
     s"${child.sql} AS $qualifierPrefix${quoteIdentifier(name)}"
   }
+
 }
 
 /**

@@ -55,13 +55,15 @@ class InterpretedProjection(expressions: Seq[Expression]) extends Projection {
   override def toString(): String = s"Row => [${exprArray.mkString(",")}]"
 }
 
-class VectorizedInterpretedProjection(expressions: Seq[Expression]){
+class VectorizedInterpretedProjection(expressions: Seq[Expression]) extends Serializable{
   def this(expressions: Seq[Expression], inputSchema: Seq[Attribute]) =
     this(expressions.map(BindReferences.bindReference(_, inputSchema)))
 
   def apply(columnarBatch: ColumnarBatchBase): Seq[ColumnVectorBase] = {
-    expressions.map(_.asInstanceOf[VectorizedSupport].vectorizedEval(columnarBatch))
+    val ans = expressions.map(_.asInstanceOf[VectorizedSupport].vectorizedEval(columnarBatch))
+    ans
   }
+
 }
 
 /**

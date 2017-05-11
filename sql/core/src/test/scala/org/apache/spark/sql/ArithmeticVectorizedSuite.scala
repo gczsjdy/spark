@@ -7,28 +7,23 @@ import org.apache.spark.sql.test.SharedSQLContext
   */
 class ArithmeticVectorizedSuite extends QueryTest with SharedSQLContext {
   import testImplicits._
-  test("Vectorized add") {
+  test("Vectorized add local table") {
     val table = "test"
-    withTempView(table) {
-//      val text = (0 until 1000).foldLeft[String](""){
-//        (str, i) => str + s",($i, ${i+1})"
-//      }.substring(1)
-//
-//      spark.sql(s"create table $table (col1 int, col2 int)")
-//      spark.sql(s"insert into $table values text")
-//spark.sql("create external table test(col1 int, col2 int) location '/home/gcz/test.json'")
+    withSQLConf("spark.sql.codegen.wholeStage" -> "false"){
 
-      Seq((1, 2)).toDF("col1", "col2").createOrReplaceTempView(table)
-//      checkAnswer(
-//        spark.sql(
-//          s"""
-//             |SELECT
-//             |  col1 + col2
-//             |FROM $table
-//           """.stripMargin),
-//        (0 until 1000).map(i => Row(2 * i + 1))
-//      )
-      println(sql(s"select col1 + col2, col1, col1* col2 from $table").explain())
+      checkAnswer(
+        spark.range(0, 1000).select($"id" + $"id"),
+        (0 until 1000).map(i => Row(2 * i))
+      )
+      println(spark.range(1, 1000).select($"id" + $"id").explain(true))
+    }
+
+  }
+  test("Vectorized add external table") {
+    withTable("tmp") {
+      spark.sql("create table tmp (value string)")
+      spark.sql("load data local inpath './sql/hive/src/test/resources/data/files/kv1.txt' into table tmp")
+
     }
 
   }

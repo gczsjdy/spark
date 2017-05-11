@@ -225,9 +225,9 @@ public class ColumnVectorUtils {
   /**
    * Converts an iterator of rows into a single ColumnBatch.
    */
-  public static Iterator<ColumnarBatch> fromInternalRowToBatch(
+  public static Iterator<ColumnarBatchBase> fromInternalRowToBatch(
           StructType schema, MemoryMode memMode, Iterator<InternalRow> row) {
-    ColumnarBatch batch = ColumnarBatch.allocate(schema, memMode);
+    ColumnarBatchBase batch = ColumnarBatchBase.allocate(schema, memMode);
     int n = 0;
     while (row.hasNext()) {
       InternalRow r = row.next();
@@ -237,7 +237,7 @@ public class ColumnVectorUtils {
       n++;
     }
     batch.setNumRows(n);
-    return new Iterator<ColumnarBatch>() {
+    return new Iterator<ColumnarBatchBase>() {
       int cnt = 1;
       @Override
       public boolean hasNext() {
@@ -245,7 +245,7 @@ public class ColumnVectorUtils {
         return cnt >=0 ;
       }
       @Override
-      public ColumnarBatch next() {
+      public ColumnarBatchBase next() {
         return batch;
       }
     };

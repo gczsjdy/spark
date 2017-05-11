@@ -28,6 +28,7 @@ import org.apache.spark.sql.types.*;
 import org.apache.spark.unsafe.types.CalendarInterval;
 import org.apache.spark.unsafe.types.UTF8String;
 
+import java.io.Serializable;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 
@@ -56,12 +57,23 @@ import java.math.BigInteger;
  *
  * ColumnVectors are intended to be reused.
  */
-public abstract class ColumnVectorBase implements AutoCloseable {
+public abstract class ColumnVectorBase implements AutoCloseable, Serializable{
   /**
    * Allocates a column to store elements of `type` on or off heap.
    * Capacity is the initial capacity of the vector and it will grow as necessary. Capacity is
    * in number of elements, not number of bytes.
    */
+
+  protected int numRows;
+
+  public void setNumRows(int numRows) {
+    this.numRows = numRows;
+  }
+
+  public int getNumRows() {
+    return numRows;
+  }
+
   public static ColumnVectorBase allocate(int capacity, DataType type, MemoryMode mode) {
     if (mode == MemoryMode.OFF_HEAP) {
       return new OffHeapColumnVector(capacity, type);

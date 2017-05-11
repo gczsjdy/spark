@@ -26,6 +26,7 @@ import org.apache.spark.sql.types.*;
 import org.apache.spark.unsafe.types.CalendarInterval;
 import org.apache.spark.unsafe.types.UTF8String;
 
+import java.io.Serializable;
 import java.math.BigDecimal;
 import java.util.*;
 
@@ -43,7 +44,7 @@ import java.util.*;
  *  - There are many TODOs for the existing APIs. They should throw a not implemented exception.
  *  - Compaction: The batch and columns should be able to compact based on a selection vector.
  */
-public class ColumnarBatchBase {
+public class ColumnarBatchBase implements Serializable{
     protected static final int DEFAULT_BATCH_SIZE = 4 * 1024;
     protected static MemoryMode DEFAULT_MEMORY_MODE = MemoryMode.ON_HEAP;
 
@@ -397,6 +398,9 @@ public class ColumnarBatchBase {
                     }
                 }
             }
+        }
+        for (int i = 0; i<columns.length; i ++) {
+            columns[i].setNumRows(numRows);
         }
     }
 
