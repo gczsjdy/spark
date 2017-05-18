@@ -45,7 +45,7 @@ import java.util.*;
  *  - Compaction: The batch and columns should be able to compact based on a selection vector.
  */
 public class ColumnarBatchBase implements Serializable{
-    protected static final int DEFAULT_BATCH_SIZE = 4 * 1024;
+    protected static final int DEFAULT_BATCH_SIZE = 2048;
     protected static MemoryMode DEFAULT_MEMORY_MODE = MemoryMode.ON_HEAP;
 
     private final StructType schema;
