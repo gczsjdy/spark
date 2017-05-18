@@ -61,7 +61,7 @@ public abstract class ColumnVector extends ColumnVectorBase implements AutoClose
   protected ColumnVector(int capacity, DataType type, MemoryMode memMode) {
     super(capacity, type, memMode);
   }
-  public static ColumnVector allocate(int capacity, DataType type, MemoryMode mode) {
+  public static ColumnVectorBase allocate(int capacity, DataType type, MemoryMode mode) {
     if (mode == MemoryMode.OFF_HEAP) {
       return new OffHeapColumnVector(capacity, type);
     } else {
