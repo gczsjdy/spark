@@ -84,10 +84,11 @@ case class BoundReference(ordinal: Int, dataType: DataType, nullable: Boolean)
 }
 
 object BindReferences extends Logging {
+
   def bindReference[A <: Expression](
-                                      expression: A,
-                                      input: AttributeSeq,
-                                      allowFailures: Boolean = false): A = {
+      expression: A,
+      input: AttributeSeq,
+      allowFailures: Boolean = false): A = {
     expression.transform { case a: AttributeReference =>
       attachTree(a, "Binding attribute") {
         val ordinal = input.indexOf(a.exprId)
@@ -103,5 +104,4 @@ object BindReferences extends Logging {
       }
     }.asInstanceOf[A] // Kind of a hack, but safe.  TODO: Tighten return type when possible.
   }
-
 }

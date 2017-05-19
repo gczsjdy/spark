@@ -6,9 +6,6 @@ import org.apache.spark.util.Benchmark
 
 import scala.util.Try
 
-/**
-  * Created by gcz on 17-5-18.
-  */
 object VectorizedExpressionEvalBenchmark {
 
   def add(iters: Int) = {

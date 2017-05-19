@@ -299,7 +299,7 @@ public class VectorizedColumnReader {
         break;
       case BINARY:
         // TODO: this is incredibly inefficient as it blows up the dictionary right here. We
-        // need to do this better. We should probably add the dictionary data to the ColumnVectorBase
+        // need to do this better. We should probably add the dictionary data to the ColumnVector
         // and reuse it across batches. This should mean adding a ByteArray would just update
         // the length and offset.
         for (int i = rowId; i < rowId + num; ++i) {

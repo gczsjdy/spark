@@ -146,7 +146,6 @@ case class Alias(child: Expression, name: String)(
 
   override def vectorizedEval(input: ColumnarBatchBase): ColumnVectorBase = child.asInstanceOf[VectorizedSupport].vectorizedEval(input)
 
-
   /** Just a simple passthrough for code generation. */
   override def genCode(ctx: CodegenContext): ExprCode = child.genCode(ctx)
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = ev.copy("")

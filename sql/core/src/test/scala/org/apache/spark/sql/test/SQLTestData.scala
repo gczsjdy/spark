@@ -20,7 +20,7 @@ package org.apache.spark.sql.test
 import java.nio.charset.StandardCharsets
 
 import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.{DataFrame, SQLContext, SQLImplicits, SparkSession}
+import org.apache.spark.sql.{DataFrame, SparkSession, SQLContext, SQLImplicits}
 import org.apache.spark.sql.internal.SQLConf
 
 /**
