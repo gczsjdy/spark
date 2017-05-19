@@ -220,7 +220,7 @@ public final class OnHeapColumnVector extends ColumnVectorBase {
     for (int i = 0; i < count; ++i, srcOffset += 4) {
       intData[i + rowId] = Platform.getInt(src, srcOffset);
       if (bigEndianPlatform) {
-        intData[i + rowId] = Integer.reverseBytes(intData[i + rowId]);
+        intData[i + rowId] = java.lang.Integer.reverseBytes(intData[i + rowId]);
       }
     }
   }
@@ -236,12 +236,12 @@ public final class OnHeapColumnVector extends ColumnVectorBase {
 
   /**
    * Returns the dictionary Id for rowId.
-   * This should only be called when the ColumnVectorBase is dictionaryIds.
+   * This should only be called when the ColumnVector is dictionaryIds.
    * We have this separate method for dictionaryIds as per SPARK-16928.
    */
   public int getDictId(int rowId) {
     assert(dictionary == null)
-            : "A ColumnVectorBase dictionary should not have a dictionary for itself.";
+            : "A ColumnVector dictionary should not have a dictionary for itself.";
     return intData[rowId];
   }
 
@@ -272,7 +272,7 @@ public final class OnHeapColumnVector extends ColumnVectorBase {
     for (int i = 0; i < count; ++i, srcOffset += 8) {
       longData[i + rowId] = Platform.getLong(src, srcOffset);
       if (bigEndianPlatform) {
-        longData[i + rowId] = Long.reverseBytes(longData[i + rowId]);
+        longData[i + rowId] = java.lang.Long.reverseBytes(longData[i + rowId]);
       }
     }
   }
