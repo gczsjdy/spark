@@ -10,7 +10,7 @@ object VectorizedExpressionEvalBenchmark {
 
   def add(iters: Int) = {
 
-    val count = 1000000000
+    val count = 1000000
 
     val spark = SparkSession.builder
       .master("local[1]")
@@ -42,7 +42,7 @@ object VectorizedExpressionEvalBenchmark {
         }
         val range = spark.range(0, count)
         (0 until iters).foreach { _ =>
-          range.select(column)
+          range.select(column).collect()
         }
       }
     }
@@ -54,30 +54,39 @@ object VectorizedExpressionEvalBenchmark {
         }
         val range = spark.range(0, count)
         (0 until iters).foreach { _ =>
-          range.select(column)
+          range.select(column).collect()
         }
       }
     }
 
     val rowBasedAdd = getRowBasedAdd(2)
-
-    val rowBasedAdd100 = getRowBasedAdd(100)
-
-    val rowBasedAdd500 = getRowBasedAdd(500)
-
     val vectorizedAdd = getVectorizedAdd(2)
 
+    val rowBasedAdd100 = getRowBasedAdd(100)
     val vectorizedAdd100 = getVectorizedAdd(100)
 
+    val rowBasedAdd500 = getRowBasedAdd(500)
     val vectorizedAdd500 = getVectorizedAdd(500)
 
-    val benchmark = new Benchmark(s"Add expresion evaluation with rows: $count, iters: $iters", count*iters)
+    val rowBasedAdd2000 = getRowBasedAdd(2000)
+    val vectorizedAdd2000 = getVectorizedAdd(2000)
+
+    val benchmark = new Benchmark(s"Add expresion evaluation", count*iters)
     benchmark.addCase("Row-based add 2 columns")(rowBasedAdd)
     benchmark.addCase("Vectorized add 2 columns")(vectorizedAdd)
     benchmark.addCase("Row-based add 100 columns")(rowBasedAdd100)
     benchmark.addCase("Vectorized add 100 columns")(vectorizedAdd100)
-    benchmark.addCase("Row-based add 2000 columns")(rowBasedAdd500)
-    benchmark.addCase("Vectorized add 2000 columns")(vectorizedAdd500)
+
+    // test to see the turning point of significant performance drop of row-based add
+    // on my computer with 32k l1i cache, it degrades significantly at 370 columns add case
+    for (i<- 350 to (400, 10)) {
+      benchmark.addCase(s"Row-based add $i columns")(getRowBasedAdd(i))
+      benchmark.addCase(s"Vectorized add $i columns")(getVectorizedAdd(i))
+    }
+
+    benchmark.addCase("Vectorized add 500 columns")(vectorizedAdd500)
+    benchmark.addCase("Row-based add 500 columns")(rowBasedAdd500)
+
     benchmark.run()
 
   }
