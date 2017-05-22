@@ -227,25 +227,27 @@ public class ColumnVectorUtils {
    */
   public static Iterator<ColumnarBatchBase> fromInternalRowToBatch(
           StructType schema, MemoryMode memMode, Iterator<InternalRow> row) {
-    ColumnarBatchBase batch = ColumnarBatchBase.allocate(schema, memMode);
-    int n = 0;
-    while (row.hasNext()) {
-      InternalRow r = row.next();
-      for (int i = 0; i < schema.fields().length; i++) {
-        appendValue(batch.column(i), schema.fields()[i].dataType(), r, i);
-      }
-      n++;
-    }
-    batch.setNumRows(n);
+
     return new Iterator<ColumnarBatchBase>() {
-      int cnt = 1;
       @Override
       public boolean hasNext() {
-        cnt --;
-        return cnt >=0 ;
+        return row.hasNext() ;
       }
       @Override
       public ColumnarBatchBase next() {
+        ColumnarBatchBase batch = ColumnarBatchBase.allocate(schema, memMode);
+        int n = 0;
+        while (row.hasNext()) {
+          InternalRow r = row.next();
+          for (int i = 0; i < schema.fields().length; i++) {
+            appendValue(batch.column(i), schema.fields()[i].dataType(), r, i);
+          }
+          n++;
+          if (n >= batch.capacity()) {
+            break;
+          }
+        }
+        batch.setNumRows(n);
         return batch;
       }
     };

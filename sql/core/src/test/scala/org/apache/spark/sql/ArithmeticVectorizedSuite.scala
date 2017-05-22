@@ -12,10 +12,10 @@ class ArithmeticVectorizedSuite extends QueryTest with SharedSQLContext {
     withSQLConf("spark.sql.codegen.wholeStage" -> "false"){
 
       checkAnswer(
-        spark.range(0, 1000).select($"id" + $"id"),
-        (0 until 1000).map(i => Row(2 * i))
+        spark.range(0, 10000).select($"id" + $"id"),
+        (0 until 10000).map(i => Row(2 * i))
       )
-      println(spark.range(1, 1000).select($"id" + $"id").explain(true))
+      println(spark.range(1, 10000).select($"id" + $"id").explain(true))
     }
 
   }
