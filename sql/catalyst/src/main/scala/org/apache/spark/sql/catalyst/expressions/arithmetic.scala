@@ -178,7 +178,10 @@ case class Add(left: Expression, right: Expression) extends BinaryArithmetic wit
 
   def vectorizedEval(input: ColumnarBatchBase): ColumnVectorBase = {
     if (!left.isInstanceOf[VectorizedSupport] || !right.isInstanceOf[VectorizedSupport])
-      throw new UnsupportedOperationException("parameter not support vectorized")
+      throw new UnsupportedOperationException("Expression not support vectorization")
+
+    if (dataType.isInstanceOf[DecimalType] || dataType.isInstanceOf[CalendarIntervalType])
+      throw new UnsupportedOperationException("Datatype not support vectorization")
 
     val leftWithVectorizedSupport = left.asInstanceOf[VectorizedSupport]
     val rightWithVectorizedSupport = right.asInstanceOf[VectorizedSupport]
@@ -189,8 +192,31 @@ case class Add(left: Expression, right: Expression) extends BinaryArithmetic wit
     val capacity = input.capacity()
     val result = valueLeft
     result.setNumRows(size)
-    (0 until size).foreach(row => result.putLong(row, valueLeft.getLong(row) + valueRight.getLong(row)))
+    addToLeftColumnVector(result, valueRight)
     result
+  }
+
+  def addToLeftColumnVector(left: ColumnVectorBase, right: ColumnVectorBase) = {
+    left.dataType() match {
+      case ByteType =>
+        (0 until left.getNumRows).foreach(row => left.putByte(
+          row, (left.getByte(row) + right.getByte(row)).toByte))
+      case ShortType =>
+        (0 until left.getNumRows).foreach(row => left.putShort(
+          row, (left.getShort(row) + right.getShort(row)).toShort))
+      case IntegerType =>
+        (0 until left.getNumRows).foreach(row => left.putInt(
+          row, left.getInt(row) + right.getInt(row)))
+      case LongType =>
+        (0 until left.getNumRows).foreach(row => left.putLong(
+          row, left.getLong(row) + right.getLong(row)))
+      case FloatType =>
+        (0 until left.getNumRows).foreach(row => left.putFloat(
+          row, left.getFloat(row) + right.getFloat(row)))
+      case DoubleType =>
+        (0 until left.getNumRows).foreach(row => left.putDouble(
+          row, left.getDouble(row) + right.getDouble(row)))
+    }
   }
 }
 
