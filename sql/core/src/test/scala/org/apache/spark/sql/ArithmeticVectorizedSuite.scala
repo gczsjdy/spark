@@ -11,20 +11,18 @@ class ArithmeticVectorizedSuite extends QueryTest with SharedSQLContext {
     val table = "test"
     withSQLConf("spark.sql.codegen.wholeStage" -> "false"){
 
+      val longTest = spark.range(0, 10000).select($"id" + $"id")
+      val doubleTest = spark.range(0, 10000).map(0.1 * _).select($"value" + $"value")
       checkAnswer(
-        spark.range(0, 10000).select($"id" + $"id"),
+        longTest,
         (0 until 10000).map(i => Row(2 * i))
       )
-      println(spark.range(1, 10000).select($"id" + $"id").explain(true))
+      checkAnswer(
+        doubleTest,
+        (0 until 10000).map(i => Row(0.2 * i))
+      )
+      println(longTest.explain(true))
+      println(doubleTest.explain(true))
     }
-
-  }
-  test("Vectorized add external table") {
-//    withTable("tmp") {
-//      spark.sql("create table tmp (value string)")
-//      spark.sql("load data local inpath './sql/hive/src/test/resources/data/files/kv1.txt' into table tmp")
-//
-//    }
-
   }
 }
