@@ -59,34 +59,15 @@ object VectorizedExpressionEvalBenchmark {
       }
     }
 
-    val rowBasedAdd = getRowBasedAdd(2)
-    val vectorizedAdd = getVectorizedAdd(2)
-
-    val rowBasedAdd100 = getRowBasedAdd(100)
-    val vectorizedAdd100 = getVectorizedAdd(100)
-
-    val rowBasedAdd500 = getRowBasedAdd(500)
-    val vectorizedAdd500 = getVectorizedAdd(500)
-
-    val rowBasedAdd2000 = getRowBasedAdd(2000)
-    val vectorizedAdd2000 = getVectorizedAdd(2000)
+    // test 350-400 to see the turning point of significant performance drop of row-based add
+    // on my computer with 32k l1i cache, it degrades significantly at 370 columns add case
+    val testAddColumnNumber = (List(2, 100, 500) ++ Range.inclusive(350, 400, 10)).sorted
 
     val benchmark = new Benchmark(s"Add expresion evaluation", count*iters)
-    benchmark.addCase("Row-based add 2 columns")(rowBasedAdd)
-    benchmark.addCase("Vectorized add 2 columns")(vectorizedAdd)
-    benchmark.addCase("Row-based add 100 columns")(rowBasedAdd100)
-    benchmark.addCase("Vectorized add 100 columns")(vectorizedAdd100)
-
-    // test to see the turning point of significant performance drop of row-based add
-    // on my computer with 32k l1i cache, it degrades significantly at 370 columns add case
-    for (i<- 350 to (400, 10)) {
-      benchmark.addCase(s"Row-based add $i columns")(getRowBasedAdd(i))
-      benchmark.addCase(s"Vectorized add $i columns")(getVectorizedAdd(i))
+    testAddColumnNumber.foreach {
+      num => benchmark.addCase(s"Row-based add $num columns")(getRowBasedAdd(num))
+        benchmark.addCase(s"Vectorized add $num columns")(getVectorizedAdd(num))
     }
-
-    benchmark.addCase("Vectorized add 500 columns")(vectorizedAdd500)
-    benchmark.addCase("Row-based add 500 columns")(rowBasedAdd500)
-
     benchmark.run()
 
   }
