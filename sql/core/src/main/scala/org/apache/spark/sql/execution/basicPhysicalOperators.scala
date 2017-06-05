@@ -76,7 +76,6 @@ case class ProjectExec(projectList: Seq[NamedExpression], child: SparkPlan)
 
   protected override def doExecute(): RDD[InternalRow] = {
 
-
     def allSupportVectorized(e: Expression): Boolean = {
       if (e.isInstanceOf[LeafExpression])
         true
@@ -88,7 +87,7 @@ case class ProjectExec(projectList: Seq[NamedExpression], child: SparkPlan)
       //Convert InternalRows to ColumnarBatch
       val columnarBatch: RDD[ColumnarBatchBase] = child.execute().mapPartitions[ColumnarBatchBase]{
         (iter) => ColumnVectorUtils.fromInternalRowToBatch(
-          schema, MemoryMode.ON_HEAP, iter.asJava
+          StructType.fromAttributes(child.output), MemoryMode.ON_HEAP, iter.asJava
         ).asScala
       }
 
