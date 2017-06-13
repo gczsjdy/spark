@@ -53,8 +53,8 @@ object VectorizedExpressionEvalBenchmark {
     }
 
     // test 350-400 to see the turning point of significant performance drop of row-based add
-    // on my computer with 32k l1i cache, it degrades significantly at 370 columns add case
-    val testAddColumnNumber = (List(2, 100) ++ Range.inclusive(350, 400, 10)).sorted
+    // on my computer with 32k l1i cache, it degrades significantly at 360 columns add case
+    val testAddColumnNumber = (List(2, 200, 400) ++ Range.inclusive(350, 380, 10)).sorted
 
     val benchmark = new Benchmark(s"Add expresion evaluation", count*iters)
     explain(testAddColumnNumber.head)
@@ -65,6 +65,18 @@ object VectorizedExpressionEvalBenchmark {
         benchmark.addCase(s"Vectorized add $num columns")(getVectorizedAdd(num))
     }
     benchmark.run()
+//    Java HotSpot(TM) 64-Bit Server VM 1.8.0_111-b14 on Linux 4.4.0-78-generic
+//    Intel(R) Core(TM) i7-6700 CPU @ 3.40GHz
+//      Add expresion evaluation:                Best/Avg Time(ms)    Rate(M/s)   Per Row(ns)   Relative
+//      ------------------------------------------------------------------------------------------------
+//    Row-based add 2 columns                       2092 / 2171          4.8         209.2       1.0X
+//      Vectorized add 2 columns                      3134 / 3146          3.2         313.4       0.7X
+//      Row-based add 350 columns                     5436 / 5538          1.8         543.6       0.4X
+//      Vectorized add 350 columns                    7798 / 7929          1.3         779.8       0.3X
+//      Row-based add 360 columns                   37448 / 38106          0.3        3744.8       0.1X
+//      Vectorized add 360 columns                    7858 / 7874          1.3         785.8       0.3X
+//      Row-based add 370 columns                   38924 / 39023          0.3        3892.4       0.1X
+//      Vectorized add 370 columns                    8282 / 8286          1.2         828.2       0.3X
   }
 
   def substring(iters: Int) = {
