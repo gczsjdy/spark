@@ -184,7 +184,11 @@ public class ColumnVectorUtils {
       } else if (t == DataTypes.DoubleType) {
         dst.appendDouble(((Double)o).doubleValue());
       } else if (t == DataTypes.StringType) {
-        byte[] b =((String)o).getBytes(StandardCharsets.UTF_8);
+        byte[] b;
+        if (o.getClass() == UTF8String.class)
+          b = ((UTF8String)o).getBytes();
+        else
+          b =((String)o).getBytes(StandardCharsets.UTF_8);
         dst.appendByteArray(b, 0, b.length);
       } else if (t instanceof DecimalType) {
         DecimalType dt = (DecimalType) t;
