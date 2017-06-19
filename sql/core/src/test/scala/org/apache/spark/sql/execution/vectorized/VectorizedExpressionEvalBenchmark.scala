@@ -16,9 +16,11 @@ object VectorizedExpressionEvalBenchmark {
 
   import spark.implicits._
 
-  def add(iters: Int) = {
+  def powerBase10(power: Int) = Math.pow(10, power).toInt
 
-    val count = 1000000
+  def add(iters: Int, singleTest: Boolean) = {
+
+    val count = 100000
 
     // Set default configs. Individual cases will change them if necessary.
     spark.conf.set(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key, "true")
@@ -33,15 +35,28 @@ object VectorizedExpressionEvalBenchmark {
       }
     }
 
-    def getRowBasedAdd(numAdd: Int): Int => Unit = { i: Int =>
-      withSQLConf(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> "true") {
-        prepareAndExecAdd(numAdd)
+    def prepareAndExecSingleAdd(numRows: Int) = {
+      val range = spark.range(0, numRows)
+      (0 until iters).foreach { _ =>
+        range.select($"id" + $"id").collect()
       }
     }
 
-    def getVectorizedAdd(numAdd: Int): Int => Unit = { i: Int =>
+    def getRowBasedAdd(num: Int): Int => Unit = { i: Int =>
+      withSQLConf(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> "true") {
+        if(singleTest)
+          prepareAndExecSingleAdd(numRows = num)
+        else
+          prepareAndExecAdd(numAdd = num)
+      }
+    }
+
+    def getVectorizedAdd(num: Int): Int => Unit = { i: Int =>
       withSQLConf(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> "false") {
-        prepareAndExecAdd(numAdd)
+        if(singleTest)
+          prepareAndExecSingleAdd(numRows = num)
+        else
+          prepareAndExecAdd(numAdd = num)
       }
     }
 
@@ -54,42 +69,112 @@ object VectorizedExpressionEvalBenchmark {
 
     // test 350-400 to see the turning point of significant performance drop of row-based add
     // on my computer with 32k l1i cache, it degrades significantly at 360 columns add case
-    val testAddColumnNumber = (List(2, 200, 400) ++ Range.inclusive(350, 400, 10)).sorted
+    val addColumnNumber = (List(2) ++ Range.inclusive(350, 370, 10)).sorted
+
+    val addTestTableRowNumber = List(powerBase10(5), powerBase10(6), powerBase10(7))
 
     val benchmark = new Benchmark(s"Add expresion evaluation", count*iters)
-    explain(testAddColumnNumber.head)
+    explain(addColumnNumber.head)
 
-    testAddColumnNumber.foreach {
-      num =>
-        benchmark.addCase(s"Row-based add $num columns")(getRowBasedAdd(num))
-        benchmark.addCase(s"Vectorized add $num columns")(getVectorizedAdd(num))
+    if(singleTest) {
+      addTestTableRowNumber.foreach {
+        num =>
+          benchmark.addCase(s"Row-based add $num rows, 2 adds")(getRowBasedAdd(num))
+          benchmark.addCase(s"Vectorized add $num rows, 2 adds")(getVectorizedAdd(num))
+      }
+    } else {
+      addColumnNumber.foreach {
+        num =>
+          benchmark.addCase(s"Row-based add $num columns")(getRowBasedAdd(num))
+          benchmark.addCase(s"Vectorized add $num columns")(getVectorizedAdd(num))
+      }
     }
     benchmark.run()
 
-//    The vectorized benchmark result is influced by ColumnarBatch's batch size, below is for batch size = 2048
-//   Java HotSpot(TM) 64-Bit Server VM 1.8.0_111-b14 on Linux 4.4.0-78-generic
-//    Intel(R) Core(TM) i7-6700 CPU @ 3.40GHz
-//      Add expresion evaluation:                Best/Avg Time(ms)    Rate(M/s)   Per Row(ns)   Relative
-//      ------------------------------------------------------------------------------------------------
-//      Row-based add 2 columns                       2092 / 2171          4.8         209.2       1.0X
-//      Vectorized add 2 columns                      3134 / 3146          3.2         313.4       0.7X
-//      Row-based add 350 columns                     5436 / 5538          1.8         543.6       0.4X
-//      Vectorized add 350 columns                    7798 / 7929          1.3         779.8       0.3X
-//      Row-based add 360 columns                   37448 / 38106          0.3        3744.8       0.1X
-//      Vectorized add 360 columns                    7858 / 7874          1.3         785.8       0.3X
-//      Row-based add 370 columns                   38924 / 39023          0.3        3892.4       0.1X
-//      Vectorized add 370 columns                    8282 / 8286          1.2         828.2       0.3X
+    //    The vectorized benchmark result is influced by ColumnarBatch's batch size, below is for batch size = 2048
+    //   Java HotSpot(TM) 64-Bit Server VM 1.8.0_111-b14 on Linux 4.4.0-78-generic
+    //    Intel(R) Core(TM) i7-6700 CPU @ 3.40GHz
+    //      Add expresion evaluation:                Best/Avg Time(ms)    Rate(M/s)   Per Row(ns)   Relative
+    //      ------------------------------------------------------------------------------------------------
+    //      Row-based add 2 columns                       2092 / 2171          4.8         209.2       1.0X
+    //      Vectorized add 2 columns                      3134 / 3146          3.2         313.4       0.7X
+    //      Row-based add 350 columns                     5436 / 5538          1.8         543.6       0.4X
+    //      Vectorized add 350 columns                    7798 / 7929          1.3         779.8       0.3X
+    //      Row-based add 360 columns                   37448 / 38106          0.3        3744.8       0.1X
+    //      Vectorized add 360 columns                    7858 / 7874          1.3         785.8       0.3X
+    //      Row-based add 370 columns                   38924 / 39023          0.3        3892.4       0.1X
+    //      Vectorized add 370 columns                    8282 / 8286          1.2         828.2       0.3X
   }
 
-  def substring(iters: Int) = {
+  def arithmeticSingleTest(opName: String, operation: (String) => String, iters: Int) = {
 
-    val count = 1000
+    val count = 100000
+
+    // Set default configs. Individual cases will change them if necessary.
+    spark.conf.set(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key, "true")
+
+    def prepareAndExecSingleArithmetic(numRows: Int) = {
+      val range = spark.range(0, numRows)
+      val selectColumn = operation("id")
+      (0 until iters).foreach { _ =>
+        range.selectExpr(selectColumn).collect()
+      }
+    }
+
+    def getRowBasedArithmetic(num: Int): Int => Unit = { i: Int =>
+      withSQLConf(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> "true") {
+        prepareAndExecSingleArithmetic(numRows = num)
+      }
+    }
+
+    def getVectorizedArithmetic(num: Int): Int => Unit = { i: Int =>
+      withSQLConf(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> "false") {
+        prepareAndExecSingleArithmetic(numRows = num)
+      }
+    }
+
+    def explain(numAdd: Int) = {
+      spark.range(0, count).selectExpr(operation("id")).explain()
+    }
+
+    // test 350-400 to see the turning point of significant performance drop of row-based add
+    // on my computer with 32k l1i cache, it degrades significantly at 360 columns add case
+    val arithmeticColumnNumber = (List(2) ++ Range.inclusive(350, 370, 10)).sorted
+
+    val arithmeticTestTableRowNumber = List(powerBase10(5), powerBase10(6), powerBase10(7))
+
+    val benchmark = new Benchmark(s"opName expresion evaluation", count*iters)
+    explain(arithmeticColumnNumber.head)
+
+    arithmeticTestTableRowNumber.foreach {
+      num =>
+        benchmark.addCase(s"Row-based $opName $num rows")(getRowBasedArithmetic(num))
+        benchmark.addCase(s"Vectorized $opName $num rows")(getVectorizedArithmetic(num))
+    }
+
+    benchmark.run()
+
+  }
+
+  def substring(iters: Int, singleTest: Boolean) = {
+
+    val count = 100000
 
     val value = "abcdefgh"
     val schema = StructType(List(StructField("value", StringType)))
 
     // Set default configs. Individual cases will change them if necessary.
     spark.conf.set(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key, "true")
+
+    def prepareAndExecSingleSubstring(numRows: Int) = {
+      val substring = s"substring(value, ${value.length/2})"
+      spark.createDataFrame(spark.sparkContext.parallelize(
+        Seq.fill(numRows)(Row(value))), schema).createOrReplaceTempView("string_table")
+
+      (0 until iters).foreach { _ =>
+        spark.sql(s"select $substring from string_table").collect()
+      }
+    }
 
     def prepareAndExecSubstring(numSubstring: Int) = {
       val substring = s"substring(value, ${value.length/2})"
@@ -104,15 +189,23 @@ object VectorizedExpressionEvalBenchmark {
       }
     }
 
-    def getRowBasedSubstring(numSubstring: Int): Int => Unit = { i: Int =>
+    def getRowBasedSubstring(num: Int): Int => Unit = { i: Int =>
       withSQLConf(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> "true", SQLConf.WHOLESTAGE_MAX_NUM_FIELDS.key -> "500") {
-        prepareAndExecSubstring(numSubstring)
+        if (singleTest) {
+          prepareAndExecSingleSubstring(numRows = num)
+        } else {
+          prepareAndExecSubstring(numSubstring = num)
+        }
       }
     }
 
-    def getVectorizedSubstring(numSubstring: Int): Int => Unit = { i: Int =>
+    def getVectorizedSubstring(num: Int): Int => Unit = { i: Int =>
       withSQLConf(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> "false", SQLConf.WHOLESTAGE_MAX_NUM_FIELDS.key -> "500") {
-        prepareAndExecSubstring(numSubstring)
+        if (singleTest) {
+          prepareAndExecSingleSubstring(numRows = num)
+        } else {
+          prepareAndExecSubstring(numSubstring = num)
+        }
       }
     }
 
@@ -126,17 +219,28 @@ object VectorizedExpressionEvalBenchmark {
       spark.sql(s"select $column from string_table").explain()
     }
 
-    val testAddColumnNumber = (List(2, 100, 200, 300, 400)).sorted
+    val substrOperationNumber = (List(2, 100, 200, 300, 400)).sorted
+    val substrRowNumber = List(powerBase10(5), powerBase10(6), powerBase10(7))
 
     val benchmark = new Benchmark(s"Substring expresion evaluation", count*iters)
-    explain(testAddColumnNumber.head)
+    explain(substrOperationNumber.head)
 
-    testAddColumnNumber.foreach {
-      num =>
-        benchmark.addCase(s"Vectorized $num substrings")(getVectorizedSubstring(num))
-        benchmark.addCase(s"Row-based $num substrings")(getRowBasedSubstring(num))
+    if (singleTest) {
+      substrRowNumber.foreach {
+        num =>
+          benchmark.addCase(s"Vectorized $num substrings")(getVectorizedSubstring(num))
+          benchmark.addCase(s"Row-based $num substrings")(getRowBasedSubstring(num))
 
+      }
+    } else {
+      substrOperationNumber.foreach {
+        num =>
+          benchmark.addCase(s"Vectorized $num substrings")(getVectorizedSubstring(num))
+          benchmark.addCase(s"Row-based $num substrings")(getRowBasedSubstring(num))
+
+      }
     }
+
     benchmark.run()
 //      Java HotSpot(TM) 64-Bit Server VM 1.8.0_111-b14 on Linux 4.4.0-78-generic
 //      Intel(R) Core(TM) i7-6700 CPU @ 3.40GHz
@@ -155,7 +259,7 @@ object VectorizedExpressionEvalBenchmark {
   }
 
   def stringOpsTest(iters: Int) = {
-    val count = 1000
+    val count = 10000
 
     val value = "abcd"
     val value2 = "ef"
@@ -216,7 +320,7 @@ object VectorizedExpressionEvalBenchmark {
 
     }
 
-    val testAddColumnNumber = (List(2, 50, 75, 100, 120)).sorted
+    val testAddColumnNumber = (List(2, 50, 100)).sorted
 
     val benchmark = new Benchmark(s"Multiple StringOps expresion evaluation", count*iters)
     explain(testAddColumnNumber.head)
@@ -256,9 +360,37 @@ object VectorizedExpressionEvalBenchmark {
     }
   }
 
+  val add = (c: String) => s"$c + $c"
+  val abs = (c: String) => s"abs($c)"
+
+  val sqrt = (c: String) => s"sqrt($c)"
+  val floor = (c: String) => s"floor($c)"
+  val log = (c: String) => s"log($c)"
+  val log2 = (c: String) => s"log2($c)"
+  val log10 = (c: String) => s"log10($c)"
+  val sin = (c: String) => s"sin($c)"
+
+
+
+  def testArithmetic() = {
+//    arithmeticSingleTest("add", add, 10)
+    arithmeticSingleTest("abs", abs, 10)
+  }
+
+  def testMath() = {
+    arithmeticSingleTest("sqrt", sqrt, 10)
+    arithmeticSingleTest("log", log, 10)
+    arithmeticSingleTest("log2", log2, 10)
+    arithmeticSingleTest("log10", log10, 10)
+    arithmeticSingleTest("floor", floor, 10)
+    arithmeticSingleTest("sin", sin, 10)
+  }
+
   def main(args: Array[String]) = {
-    add(10)
-//    substring(100)
+    testArithmetic()
+    testMath()
+//    substring(100, singleTest = true)
 //    stringOpsTest(10)
+
   }
 }
