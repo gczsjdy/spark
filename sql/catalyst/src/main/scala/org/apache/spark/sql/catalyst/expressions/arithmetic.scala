@@ -97,7 +97,7 @@ case class UnaryPositive(child: Expression)
        1
   """)
 case class Abs(child: Expression)
-    extends UnaryExpression with ExpectsInputTypes with NullIntolerant {
+    extends UnaryExpression with ExpectsInputTypes with NullIntolerant with VectorizedSupport {
 
   override def inputTypes: Seq[AbstractDataType] = Seq(NumericType)
 
@@ -113,6 +113,25 @@ case class Abs(child: Expression)
   }
 
   protected override def nullSafeEval(input: Any): Any = numeric.abs(input)
+
+  override def vectorizedEval(input: ColumnarBatchBase): ColumnVectorBase = {
+    if (!child.isInstanceOf[VectorizedSupport])
+      throw new UnsupportedOperationException("Expression not support vectorization")
+
+    val childWithVectorizedSupport = child.asInstanceOf[VectorizedSupport]
+
+    val original = childWithVectorizedSupport.vectorizedEval(input)
+
+    val size = original.getNumRows
+    val capacity = input.capacity()
+    val result = original
+
+    result.setNumRows(size)
+    (0 until result.getNumRows).foreach { row =>
+      result.putLong(row, Math.abs(result.getLong(row)))
+    }
+    result
+  }
 }
 
 abstract class BinaryArithmetic extends BinaryOperator with NullIntolerant {

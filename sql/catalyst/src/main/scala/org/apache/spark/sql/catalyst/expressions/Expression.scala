@@ -636,3 +636,24 @@ abstract class TernaryExpression extends Expression {
 trait VectorizedSupport extends Expression{
   def vectorizedEval(input: ColumnarBatchBase): ColumnVectorBase
 }
+
+trait VectorizedUnaryMathSupport extends UnaryMathExpression with VectorizedSupport {
+  override def vectorizedEval(input: ColumnarBatchBase): ColumnVectorBase = {
+    if (!child.isInstanceOf[VectorizedSupport])
+      throw new UnsupportedOperationException("Expression not support vectorization")
+
+    val childWithVectorizedSupport = child.asInstanceOf[VectorizedSupport]
+
+    val original = childWithVectorizedSupport.vectorizedEval(input)
+
+    val size = original.getNumRows
+    val capacity = input.capacity()
+    val result = original
+
+    result.setNumRows(size)
+    (0 until result.getNumRows).foreach { row =>
+      result.putDouble(row, f(result.getDouble(row)))
+    }
+    result
+  }
+}

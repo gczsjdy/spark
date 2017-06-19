@@ -25,6 +25,7 @@ import org.apache.spark.sql.catalyst.analysis.TypeCheckResult.{TypeCheckFailure,
 import org.apache.spark.sql.catalyst.expressions.codegen._
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.util.NumberConverter
+import org.apache.spark.sql.execution.vectorized.{ColumnVectorBase, ColumnarBatchBase}
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.UTF8String
 
@@ -338,7 +339,7 @@ case class Expm1(child: Expression) extends UnaryMathExpression(math.expm1, "EXP
       > SELECT _FUNC_(5);
        5
   """)
-case class Floor(child: Expression) extends UnaryMathExpression(math.floor, "FLOOR") {
+case class Floor(child: Expression) extends UnaryMathExpression(math.floor, "FLOOR") with VectorizedUnaryMathSupport {
   override def dataType: DataType = child.dataType match {
     case dt @ DecimalType.Fixed(_, 0) => dt
     case DecimalType.Fixed(precision, scale) =>
@@ -441,7 +442,7 @@ case class Factorial(child: Expression) extends UnaryExpression with ImplicitCas
       > SELECT _FUNC_(1);
        0.0
   """)
-case class Log(child: Expression) extends UnaryLogExpression(math.log, "LOG")
+case class Log(child: Expression) extends UnaryLogExpression(math.log, "LOG") with VectorizedUnaryMathSupport
 
 @ExpressionDescription(
   usage = "_FUNC_(expr) - Returns the logarithm of `expr` with base 2.",
@@ -451,7 +452,7 @@ case class Log(child: Expression) extends UnaryLogExpression(math.log, "LOG")
        1.0
   """)
 case class Log2(child: Expression)
-  extends UnaryLogExpression((x: Double) => math.log(x) / math.log(2), "LOG2") {
+  extends UnaryLogExpression((x: Double) => math.log(x) / math.log(2), "LOG2") with VectorizedUnaryMathSupport {
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
     nullSafeCodeGen(ctx, ev, c =>
       s"""
@@ -472,7 +473,7 @@ case class Log2(child: Expression)
       > SELECT _FUNC_(10);
        1.0
   """)
-case class Log10(child: Expression) extends UnaryLogExpression(math.log10, "LOG10")
+case class Log10(child: Expression) extends UnaryLogExpression(math.log10, "LOG10") with VectorizedUnaryMathSupport
 
 @ExpressionDescription(
   usage = "_FUNC_(expr) - Returns log(1 + `expr`).",
@@ -514,7 +515,7 @@ case class Signum(child: Expression) extends UnaryMathExpression(math.signum, "S
       > SELECT _FUNC_(0);
        0.0
   """)
-case class Sin(child: Expression) extends UnaryMathExpression(math.sin, "SIN")
+case class Sin(child: Expression) extends UnaryMathExpression(math.sin, "SIN") with VectorizedUnaryMathSupport
 
 @ExpressionDescription(
   usage = "_FUNC_(expr) - Returns the hyperbolic sine of `expr`.",
@@ -532,7 +533,7 @@ case class Sinh(child: Expression) extends UnaryMathExpression(math.sinh, "SINH"
       > SELECT _FUNC_(4);
        2.0
   """)
-case class Sqrt(child: Expression) extends UnaryMathExpression(math.sqrt, "SQRT")
+case class Sqrt(child: Expression) extends UnaryMathExpression(math.sqrt, "SQRT") with VectorizedUnaryMathSupport
 
 @ExpressionDescription(
   usage = "_FUNC_(expr) - Returns the tangent of `expr`.",

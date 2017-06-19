@@ -139,6 +139,46 @@ class VectorizedExpressionSuite extends QueryTest with SharedSQLContext {
     }
   }
 
+  test("Vectorized abs") {
+    disableWholeStageCodegen {
+      val doubleTest = spark.range(-10000, 0).selectExpr("abs(id)")
+      checkAnswer(
+        doubleTest,
+        (Range(10000, 0, -1)).map(i => Row(i))
+      )
+      println(doubleTest.explain(true))
+    }
+  }
+
+  test("Vectorized sqrt") {
+    disableWholeStageCodegen {
+      val doubleTest = spark.range(0, 10000).map(0.1 * _).selectExpr("sqrt(value)")
+      checkAnswer(
+        doubleTest,
+        (0 until 10000).map(i => Row(Math.sqrt(0.1 * i)))
+      )
+      println(doubleTest.explain(true))
+    }
+  }
+
+  test("Vectorized toUnixTimeStamp") {
+    disableWholeStageCodegen {
+      val value = "2016-04-08"
+      val schema = StructType(List(StructField("value", StringType)))
+
+      spark.createDataFrame(spark.sparkContext.parallelize(
+        Seq.fill(1000)(Row(value))), schema).createOrReplaceTempView("string_table")
+
+      val test = spark.sql(s"select to_unix_timestamp(value, 'yyyy-MM-dd') from string_table")
+
+      checkAnswer(
+        test,
+        (0 until 1000).map(i => Row(1460041200))
+      )
+      println(test.explain(true))
+    }
+  }
+
   def disableWholeStageCodegen(f: => Unit): Unit = {
     withSQLConf("spark.sql.codegen.wholeStage" -> "false"){
       f
