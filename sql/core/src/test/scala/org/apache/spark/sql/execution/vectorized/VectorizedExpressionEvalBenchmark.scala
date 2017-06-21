@@ -17,6 +17,7 @@ object VectorizedExpressionEvalBenchmark {
   import spark.implicits._
 
   def powerBase10(power: Int) = Math.pow(10, power).toInt
+  val testRowNumber = List(powerBase10(5), powerBase10(6), powerBase10(7))
 
   def add(iters: Int, singleTest: Boolean) = {
 
@@ -71,7 +72,7 @@ object VectorizedExpressionEvalBenchmark {
     // on my computer with 32k l1i cache, it degrades significantly at 360 columns add case
     val addColumnNumber = (List(2) ++ Range.inclusive(350, 370, 10)).sorted
 
-    val addTestTableRowNumber = List(powerBase10(5), powerBase10(6), powerBase10(7))
+    val addTestTableRowNumber = testRowNumber
 
     val benchmark = new Benchmark(s"Add expresion evaluation", count*iters)
     explain(addColumnNumber.head)
@@ -114,8 +115,8 @@ object VectorizedExpressionEvalBenchmark {
     spark.conf.set(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key, "true")
 
     def prepareAndExecSingleArithmetic(numRows: Int) = {
-      val range = spark.range(0, numRows)
-      val selectColumn = operation("id")
+      val range = spark.range(0, numRows).map(_ * 0.1)
+      val selectColumn = operation("value")
       (0 until iters).foreach { _ =>
         range.selectExpr(selectColumn).collect()
       }
@@ -134,22 +135,17 @@ object VectorizedExpressionEvalBenchmark {
     }
 
     def explain(numAdd: Int) = {
-      spark.range(0, count).selectExpr(operation("id")).explain()
+      spark.range(0, count).map(_ * 0.1).selectExpr(operation("id")).explain()
     }
 
-    // test 350-400 to see the turning point of significant performance drop of row-based add
-    // on my computer with 32k l1i cache, it degrades significantly at 360 columns add case
-    val arithmeticColumnNumber = (List(2) ++ Range.inclusive(350, 370, 10)).sorted
+    val arithmeticTestTableRowNumber = testRowNumber
 
-    val arithmeticTestTableRowNumber = List(powerBase10(5), powerBase10(6), powerBase10(7))
-
-    val benchmark = new Benchmark(s"opName expresion evaluation", count*iters)
-    explain(arithmeticColumnNumber.head)
+    val benchmark = new Benchmark(s"$opName expresion evaluation", count*iters)
 
     arithmeticTestTableRowNumber.foreach {
       num =>
-        benchmark.addCase(s"Row-based $opName $num rows")(getRowBasedArithmetic(num))
         benchmark.addCase(s"Vectorized $opName $num rows")(getVectorizedArithmetic(num))
+        benchmark.addCase(s"Row-based $opName $num rows")(getRowBasedArithmetic(num))
     }
 
     benchmark.run()
@@ -220,7 +216,7 @@ object VectorizedExpressionEvalBenchmark {
     }
 
     val substrOperationNumber = (List(2, 100, 200, 300, 400)).sorted
-    val substrRowNumber = List(powerBase10(5), powerBase10(6), powerBase10(7))
+    val substrRowNumber = testRowNumber
 
     val benchmark = new Benchmark(s"Substring expresion evaluation", count*iters)
     explain(substrOperationNumber.head)
@@ -256,6 +252,58 @@ object VectorizedExpressionEvalBenchmark {
 //      Row-based 300 substrings                    12261 / 12268          0.0      122606.6       0.1X
 //      Vectorized 400 substrings                   15138 / 15146          0.0      151377.4       0.1X
 //      Row-based 400 substrings                    16481 / 16492          0.0      164807.4       0.1
+  }
+
+  def stringOpSingleTest(opName: String, operation: (String) => String, iters: Int) = {
+
+    val value = "abcdefgh"
+    val schema = StructType(List(StructField("value", StringType)))
+
+    // Set default configs. Individual cases will change them if necessary.
+    spark.conf.set(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key, "true")
+
+    def prepareAndExecSingleStringOp(numRows: Int) = {
+      val stringOpExpr = operation("value")
+      spark.createDataFrame(spark.sparkContext.parallelize(
+        Seq.fill(numRows)(Row(value))), schema).createOrReplaceTempView("string_table")
+
+      (0 until iters).foreach { _ =>
+        spark.sql(s"select $stringOpExpr from string_table").collect()
+      }
+    }
+
+    def getRowBasedSingleStringOp(num: Int): Int => Unit = { i: Int =>
+      withSQLConf(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> "true") {
+          prepareAndExecSingleStringOp(numRows = num)
+      }
+    }
+
+    def getVectorizedSingleStringOp(num: Int): Int => Unit = { i: Int =>
+      withSQLConf(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> "false") {
+          prepareAndExecSingleStringOp(numRows = num)
+      }
+    }
+
+    def explain(numSubstring: Int) = {
+      val stringOpExpr = operation("value")
+      spark.createDataFrame(spark.sparkContext.parallelize(
+        Seq.fill(1)(Row(value))), schema).createOrReplaceTempView("string_table")
+
+      spark.sql(s"select $stringOpExpr from string_table").explain()
+    }
+
+    val stringOpRowNumber = testRowNumber
+
+    val benchmark = new Benchmark(s"Substring expresion evaluation", iters)
+    explain(stringOpRowNumber.head)
+
+      stringOpRowNumber.foreach {
+        num =>
+          benchmark.addCase(s"Vectorized $num $opName")(getVectorizedSingleStringOp(num))
+          benchmark.addCase(s"Row-based $num $opName")(getRowBasedSingleStringOp(num))
+    }
+
+    benchmark.run()
   }
 
   def stringOpsTest(iters: Int) = {
@@ -365,32 +413,43 @@ object VectorizedExpressionEvalBenchmark {
 
   val sqrt = (c: String) => s"sqrt($c)"
   val floor = (c: String) => s"floor($c)"
-  val log = (c: String) => s"log($c)"
+  val log = (c: String) => s"log($c)"git
   val log2 = (c: String) => s"log2($c)"
   val log10 = (c: String) => s"log10($c)"
   val sin = (c: String) => s"sin($c)"
 
-
+  val substring = (c: String) => s"substring($c, 4)"
+  val lower = (c: String) => s"lower($c)"
+  val upper = (c: String) => s"upper($c)"
+  val trim = (c: String) => s"trim($c)"
+  val length = (c: String) => s"length($c)"
 
   def testArithmetic() = {
-//    arithmeticSingleTest("add", add, 10)
-    arithmeticSingleTest("abs", abs, 10)
+    arithmeticSingleTest("add", add, 10)
   }
 
   def testMath() = {
+    arithmeticSingleTest("abs", abs, 10)
     arithmeticSingleTest("sqrt", sqrt, 10)
     arithmeticSingleTest("log", log, 10)
     arithmeticSingleTest("log2", log2, 10)
     arithmeticSingleTest("log10", log10, 10)
-    arithmeticSingleTest("floor", floor, 10)
+//    arithmeticSingleTest("floor", floor, 10)
     arithmeticSingleTest("sin", sin, 10)
+  }
+
+  def testString() = {
+    stringOpSingleTest("substring", substring, 10)
+    stringOpSingleTest("lower", lower, 10)
+    stringOpSingleTest("upper", upper, 10)
+    stringOpSingleTest("trim", trim, 10)
+    stringOpSingleTest("length", length, 10)
   }
 
   def main(args: Array[String]) = {
     testArithmetic()
     testMath()
-//    substring(100, singleTest = true)
+    testString()
 //    stringOpsTest(10)
-
   }
 }
