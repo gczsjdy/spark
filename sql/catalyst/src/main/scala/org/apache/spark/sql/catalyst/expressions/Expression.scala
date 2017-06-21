@@ -650,10 +650,29 @@ trait VectorizedUnaryMathSupport extends UnaryMathExpression with VectorizedSupp
     val capacity = input.capacity()
     val result = original
 
-    result.setNumRows(size)
+    //    The logic before
+    //    (0 until size).foreach { row =>
+    //      result.putDouble(row, f(result.getDouble(row)))
+    //    }
+
+    val tmpArray = new Array[Double](result.getNumRows)
+
     (0 until result.getNumRows).foreach { row =>
-      result.putDouble(row, f(result.getDouble(row)))
+      tmpArray(row) = result.getDouble(row)
+    }
+
+    hotSpot(result, tmpArray)
+
+    (0 until result.getNumRows).foreach { row =>
+      result.putDouble(row, tmpArray(row))
     }
     result
+  }
+
+  def hotSpot(result: ColumnVectorBase, tmpArray: Array[Double]): Unit = {
+    (0 until result.getNumRows).foreach { row =>
+      // f is the specific math function like math.sqrt, math.sin, math.log, etc.
+      tmpArray(row) = f(tmpArray(row))
+    }
   }
 }
