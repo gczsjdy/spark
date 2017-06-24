@@ -17,9 +17,10 @@ object VectorizedExpressionEvalBenchmark {
   import spark.implicits._
 
   def powerBase10(power: Int) = Math.pow(10, power).toInt
-  val testRowNumber = List(powerBase10(5), powerBase10(6), powerBase10(7))
+  val testRowNumber = Seq(powerBase10(7))
+  val iters = 10
 
-  def add(iters: Int, singleTest: Boolean) = {
+  def add(iters: Int) = {
 
     val count = 100000
 
@@ -36,28 +37,16 @@ object VectorizedExpressionEvalBenchmark {
       }
     }
 
-    def prepareAndExecSingleAdd(numRows: Int) = {
-      val range = spark.range(0, numRows)
-      (0 until iters).foreach { _ =>
-        range.select($"id" + $"id").collect()
-      }
-    }
 
     def getRowBasedAdd(num: Int): Int => Unit = { i: Int =>
       withSQLConf(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> "true") {
-        if(singleTest)
-          prepareAndExecSingleAdd(numRows = num)
-        else
-          prepareAndExecAdd(numAdd = num)
+        prepareAndExecAdd(numAdd = num)
       }
     }
 
     def getVectorizedAdd(num: Int): Int => Unit = { i: Int =>
       withSQLConf(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> "false") {
-        if(singleTest)
-          prepareAndExecSingleAdd(numRows = num)
-        else
-          prepareAndExecAdd(numAdd = num)
+        prepareAndExecAdd(numAdd = num)
       }
     }
 
@@ -70,25 +59,15 @@ object VectorizedExpressionEvalBenchmark {
 
     // test 350-400 to see the turning point of significant performance drop of row-based add
     // on my computer with 32k l1i cache, it degrades significantly at 360 columns add case
-    val addColumnNumber = (List(2) ++ Range.inclusive(350, 370, 10)).sorted
+    val addColumnNumber = (List(2) ++ Range.inclusive(350, 390, 10)).sorted
 
-    val addTestTableRowNumber = testRowNumber
-
-    val benchmark = new Benchmark(s"Add expresion evaluation", count*iters)
+    val benchmark = new Benchmark(s"Add expresion evaluation", count * iters)
     explain(addColumnNumber.head)
 
-    if(singleTest) {
-      addTestTableRowNumber.foreach {
-        num =>
-          benchmark.addCase(s"Row-based add $num rows, 2 adds")(getRowBasedAdd(num))
-          benchmark.addCase(s"Vectorized add $num rows, 2 adds")(getVectorizedAdd(num))
-      }
-    } else {
-      addColumnNumber.foreach {
-        num =>
-          benchmark.addCase(s"Row-based add $num columns")(getRowBasedAdd(num))
-          benchmark.addCase(s"Vectorized add $num columns")(getVectorizedAdd(num))
-      }
+    addColumnNumber.foreach {
+      num =>
+        benchmark.addCase(s"Vectorized add $num columns")(getVectorizedAdd(num))
+        benchmark.addCase(s"Row-based add $num columns")(getRowBasedAdd(num))
     }
     benchmark.run()
 
@@ -138,15 +117,12 @@ object VectorizedExpressionEvalBenchmark {
       spark.range(0, count).map(_ * 0.1).selectExpr(operation("id")).explain()
     }
 
-    val arithmeticTestTableRowNumber = testRowNumber
+    val rowNumber = testRowNumber.head
 
-    val benchmark = new Benchmark(s"$opName expresion evaluation", count*iters)
+    val benchmark = new Benchmark(s"$opName expresion evaluation", rowNumber * iters)
 
-    arithmeticTestTableRowNumber.foreach {
-      num =>
-        benchmark.addCase(s"Vectorized $opName $num rows")(getVectorizedArithmetic(num))
-        benchmark.addCase(s"Row-based $opName $num rows")(getRowBasedArithmetic(num))
-    }
+    benchmark.addCase(s"Vectorized $opName $rowNumber rows")(getVectorizedArithmetic(rowNumber))
+    benchmark.addCase(s"Row-based $opName $rowNumber rows")(getRowBasedArithmetic(rowNumber))
 
     benchmark.run()
 
@@ -256,6 +232,8 @@ object VectorizedExpressionEvalBenchmark {
 
   def stringOpSingleTest(opName: String, operation: (String) => String, iters: Int) = {
 
+    val count = 100000
+
     val value = "abcdefgh"
     val schema = StructType(List(StructField("value", StringType)))
 
@@ -292,16 +270,13 @@ object VectorizedExpressionEvalBenchmark {
       spark.sql(s"select $stringOpExpr from string_table").explain()
     }
 
-    val stringOpRowNumber = testRowNumber
+    val rowNumber = testRowNumber.head
 
-    val benchmark = new Benchmark(s"Substring expresion evaluation", iters)
-    explain(stringOpRowNumber.head)
+    val benchmark = new Benchmark(s"Substring expresion evaluation", rowNumber * iters)
+    explain(2)
 
-      stringOpRowNumber.foreach {
-        num =>
-          benchmark.addCase(s"Vectorized $num $opName")(getVectorizedSingleStringOp(num))
-          benchmark.addCase(s"Row-based $num $opName")(getRowBasedSingleStringOp(num))
-    }
+    benchmark.addCase(s"Vectorized $rowNumber $opName")(getVectorizedSingleStringOp(rowNumber))
+    benchmark.addCase(s"Row-based $rowNumber $opName")(getRowBasedSingleStringOp(rowNumber))
 
     benchmark.run()
   }
@@ -413,7 +388,7 @@ object VectorizedExpressionEvalBenchmark {
 
   val sqrt = (c: String) => s"sqrt($c)"
   val floor = (c: String) => s"floor($c)"
-  val log = (c: String) => s"log($c)"git
+  val log = (c: String) => s"log($c)"
   val log2 = (c: String) => s"log2($c)"
   val log10 = (c: String) => s"log10($c)"
   val sin = (c: String) => s"sin($c)"
@@ -425,31 +400,32 @@ object VectorizedExpressionEvalBenchmark {
   val length = (c: String) => s"length($c)"
 
   def testArithmetic() = {
-    arithmeticSingleTest("add", add, 10)
+    arithmeticSingleTest("add", add, iters)
   }
 
   def testMath() = {
-    arithmeticSingleTest("abs", abs, 10)
-    arithmeticSingleTest("sqrt", sqrt, 10)
-    arithmeticSingleTest("log", log, 10)
-    arithmeticSingleTest("log2", log2, 10)
-    arithmeticSingleTest("log10", log10, 10)
-//    arithmeticSingleTest("floor", floor, 10)
-    arithmeticSingleTest("sin", sin, 10)
+    arithmeticSingleTest("abs", abs, iters)
+    arithmeticSingleTest("sqrt", sqrt, iters)
+    arithmeticSingleTest("log", log, iters)
+    arithmeticSingleTest("log2", log2, iters)
+    arithmeticSingleTest("log10", log10, iters)
+//    arithmeticSingleTest("floor", floor, iters)
+    arithmeticSingleTest("sin", sin, iters)
   }
 
   def testString() = {
-    stringOpSingleTest("substring", substring, 10)
-    stringOpSingleTest("lower", lower, 10)
-    stringOpSingleTest("upper", upper, 10)
-    stringOpSingleTest("trim", trim, 10)
-    stringOpSingleTest("length", length, 10)
+    stringOpSingleTest("substring", substring, iters)
+    stringOpSingleTest("lower", lower, iters)
+    stringOpSingleTest("upper", upper, iters)
+    stringOpSingleTest("trim", trim, iters)
+    stringOpSingleTest("length", length, iters)
   }
 
   def main(args: Array[String]) = {
+    add(iters)
     testArithmetic()
     testMath()
     testString()
-//    stringOpsTest(10)
+//    stringOpsTest(iters)
   }
 }
