@@ -13,11 +13,11 @@ class VectorizedExpressionSuite extends QueryTest with SharedSQLContext {
   test("Vectorized add") {
     disableWholeStageCodegen {
 
-      val longTest = spark.range(0, 10000).select($"id" + $"id")
+      val longTest = spark.range(0, 10000).select($"id" + $"id" + $"id")
       val doubleTest = spark.range(0, 10000).map(0.1 * _).select($"value" + $"value")
       checkAnswer(
         longTest,
-        (0 until 10000).map(i => Row(2 * i))
+        (0 until 10000).map(i => Row(3 * i))
       )
       checkAnswer(
         doubleTest,
