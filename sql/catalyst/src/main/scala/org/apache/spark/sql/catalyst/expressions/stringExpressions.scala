@@ -22,12 +22,14 @@ import java.text.{BreakIterator, DecimalFormat, DecimalFormatSymbols}
 import java.util.{HashMap, Locale, Map => JMap}
 import java.util.regex.Pattern
 
-import scala.collection.mutable.ArrayBuffer
+import org.apache.spark.memory.MemoryMode
 
+import scala.collection.mutable.ArrayBuffer
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
 import org.apache.spark.sql.catalyst.expressions.codegen._
 import org.apache.spark.sql.catalyst.util.{ArrayData, GenericArrayData}
+import org.apache.spark.sql.execution.vectorized.{ColumnVectorBase, ColumnarBatchBase}
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.{ByteArray, UTF8String}
 
@@ -47,7 +49,7 @@ import org.apache.spark.unsafe.types.{ByteArray, UTF8String}
       > SELECT _FUNC_('Spark', 'SQL');
        SparkSQL
   """)
-case class Concat(children: Seq[Expression]) extends Expression with ImplicitCastInputTypes {
+case class Concat(children: Seq[Expression]) extends Expression with ImplicitCastInputTypes with VectorizedSupport {
 
   override def inputTypes: Seq[AbstractDataType] = Seq.fill(children.size)(StringType)
   override def dataType: DataType = StringType
@@ -73,6 +75,24 @@ case class Concat(children: Seq[Expression]) extends Expression with ImplicitCas
       }
     """)
   }
+
+  override def vectorizedEval(input: ColumnarBatchBase): ColumnVectorBase = {
+    if (!children.forall(_.isInstanceOf[VectorizedSupport]))
+      throw new UnsupportedOperationException("Expression not support vectorization")
+
+    val childrenValue = children.map(_.asInstanceOf[VectorizedSupport].vectorizedEval(input))
+
+    val size = childrenValue(0).getNumRows
+    val capacity = input.capacity()
+    val result = childrenValue(0)
+
+    result.setNumRows(size)
+    (0 until result.getNumRows).foreach { row =>
+      result.putByteArray(row, UTF8String.concat(childrenValue.map(_.getUTF8String(row)): _*).getBytes())
+    }
+    result
+  }
+
 }
 
 
@@ -268,12 +288,31 @@ trait String2StringExpression extends ImplicitCastInputTypes {
        SPARKSQL
   """)
 case class Upper(child: Expression)
-  extends UnaryExpression with String2StringExpression {
+  extends UnaryExpression with String2StringExpression with VectorizedSupport {
 
   override def convert(v: UTF8String): UTF8String = v.toUpperCase
 
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
     defineCodeGen(ctx, ev, c => s"($c).toUpperCase()")
+  }
+
+  override def vectorizedEval(input: ColumnarBatchBase): ColumnVectorBase = {
+    if (!child.isInstanceOf[VectorizedSupport])
+      throw new UnsupportedOperationException("Expression not support vectorization")
+
+    val childWithVectorizedSupport = child.asInstanceOf[VectorizedSupport]
+
+    val original = childWithVectorizedSupport.vectorizedEval(input)
+
+    val size = original.getNumRows
+    val capacity = input.capacity()
+    val result = original
+
+    result.setNumRows(size)
+    (0 until result.getNumRows).foreach { row =>
+      result.putByteArray(row, result.getUTF8String(row).toUpperCase.getBytes())
+    }
+    result
   }
 }
 
@@ -287,12 +326,31 @@ case class Upper(child: Expression)
       > SELECT _FUNC_('SparkSql');
        sparksql
   """)
-case class Lower(child: Expression) extends UnaryExpression with String2StringExpression {
+case class Lower(child: Expression) extends UnaryExpression with String2StringExpression with VectorizedSupport {
 
   override def convert(v: UTF8String): UTF8String = v.toLowerCase
 
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
     defineCodeGen(ctx, ev, c => s"($c).toLowerCase()")
+  }
+
+  override def vectorizedEval(input: ColumnarBatchBase): ColumnVectorBase = {
+    if (!child.isInstanceOf[VectorizedSupport])
+      throw new UnsupportedOperationException("Expression not support vectorization")
+
+    val childWithVectorizedSupport = child.asInstanceOf[VectorizedSupport]
+
+    val original = childWithVectorizedSupport.vectorizedEval(input)
+
+    val size = original.getNumRows
+    val capacity = input.capacity()
+    val result = original
+
+    result.setNumRows(size)
+    (0 until result.getNumRows).foreach { row =>
+      result.putByteArray(row, result.getUTF8String(row).toLowerCase.getBytes())
+    }
+    result
   }
 }
 
@@ -471,7 +529,7 @@ case class FindInSet(left: Expression, right: Expression) extends BinaryExpressi
        SparkSQL
   """)
 case class StringTrim(child: Expression)
-  extends UnaryExpression with String2StringExpression {
+  extends UnaryExpression with String2StringExpression with VectorizedSupport{
 
   def convert(v: UTF8String): UTF8String = v.trim()
 
@@ -479,6 +537,25 @@ case class StringTrim(child: Expression)
 
   override def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
     defineCodeGen(ctx, ev, c => s"($c).trim()")
+  }
+
+  override def vectorizedEval(input: ColumnarBatchBase): ColumnVectorBase = {
+    if (!child.isInstanceOf[VectorizedSupport])
+      throw new UnsupportedOperationException("Expression not support vectorization")
+
+    val childWithVectorizedSupport = child.asInstanceOf[VectorizedSupport]
+
+    val original = childWithVectorizedSupport.vectorizedEval(input)
+
+    val size = original.getNumRows
+    val capacity = input.capacity()
+    val result = original
+
+    result.setNumRows(size)
+    (0 until result.getNumRows).foreach { row =>
+      result.putByteArray(row, result.getUTF8String(row).trim().getBytes())
+    }
+    result
   }
 }
 
@@ -1119,7 +1196,7 @@ case class StringSpace(child: Expression)
   """)
 // scalastyle:on line.size.limit
 case class Substring(str: Expression, pos: Expression, len: Expression)
-  extends TernaryExpression with ImplicitCastInputTypes with NullIntolerant {
+  extends TernaryExpression with ImplicitCastInputTypes with NullIntolerant with VectorizedSupport{
 
   def this(str: Expression, pos: Expression) = {
     this(str, pos, Literal(Integer.MAX_VALUE))
@@ -1150,6 +1227,28 @@ case class Substring(str: Expression, pos: Expression, len: Expression)
       }
     })
   }
+
+  override def vectorizedEval(input: ColumnarBatchBase): ColumnVectorBase = {
+    if (!str.isInstanceOf[VectorizedSupport])
+      throw new UnsupportedOperationException("Expression not support vectorization")
+
+    val strWithVectorizedSupport = str.asInstanceOf[VectorizedSupport]
+    val valStr = strWithVectorizedSupport.vectorizedEval(input)
+
+//    if (pos.isInstanceOf[Literal]) Why can't?
+    val valuePos = pos.eval().asInstanceOf[Int]
+    val valueLen = len.eval().asInstanceOf[Int]
+
+    val size = valStr.getNumRows
+    val capacity = input.capacity()
+    val result = valStr
+
+    result.setNumRows(size)
+    (0 until result.getNumRows).foreach { row =>
+      result.putByteArray(row, result.getUTF8String(row).substringSQL(valuePos, valueLen).getBytes())
+    }
+    result
+  }
 }
 
 /**
@@ -1162,7 +1261,7 @@ case class Substring(str: Expression, pos: Expression, len: Expression)
       > SELECT _FUNC_('Spark SQL');
        9
   """)
-case class Length(child: Expression) extends UnaryExpression with ImplicitCastInputTypes {
+case class Length(child: Expression) extends UnaryExpression with ImplicitCastInputTypes with VectorizedSupport {
   override def dataType: DataType = IntegerType
   override def inputTypes: Seq[AbstractDataType] = Seq(TypeCollection(StringType, BinaryType))
 
@@ -1176,6 +1275,24 @@ case class Length(child: Expression) extends UnaryExpression with ImplicitCastIn
       case StringType => defineCodeGen(ctx, ev, c => s"($c).numChars()")
       case BinaryType => defineCodeGen(ctx, ev, c => s"($c).length")
     }
+  }
+
+  override def vectorizedEval(input: ColumnarBatchBase): ColumnVectorBase = {
+    if (!child.isInstanceOf[VectorizedSupport])
+      throw new UnsupportedOperationException("Expression not support vectorization")
+
+    val childWithVectorizedSupport = child.asInstanceOf[VectorizedSupport]
+
+    val original = childWithVectorizedSupport.vectorizedEval(input)
+    val size = original.getNumRows
+    val capacity = input.capacity()
+    val result = ColumnVectorBase.allocate(size, IntegerType, MemoryMode.ON_HEAP)
+
+    result.setNumRows(size)
+    (0 until result.getNumRows).foreach { row =>
+      result.putInt(row, original.getUTF8String(row).numChars())
+    }
+    result
   }
 }
 

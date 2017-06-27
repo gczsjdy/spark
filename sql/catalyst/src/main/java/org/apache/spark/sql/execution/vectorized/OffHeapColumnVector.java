@@ -16,17 +16,17 @@
  */
 package org.apache.spark.sql.execution.vectorized;
 
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
-
 import org.apache.spark.memory.MemoryMode;
 import org.apache.spark.sql.types.*;
 import org.apache.spark.unsafe.Platform;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+
 /**
  * Column data backed using offheap memory.
  */
-public final class OffHeapColumnVector extends ColumnVector {
+public final class OffHeapColumnVector extends ColumnVectorBase {
 
   private static final boolean bigEndianPlatform =
     ByteOrder.nativeOrder().equals(ByteOrder.BIG_ENDIAN);
@@ -161,7 +161,7 @@ public final class OffHeapColumnVector extends ColumnVector {
     if (dictionary == null) {
       return Platform.getByte(null, data + rowId);
     } else {
-      return (byte) dictionary.decodeToInt(dictionaryIds.getDictId(rowId));
+      return (byte) (dictionary.decodeToInt(dictionaryIds.getDictId(rowId)));
     }
   }
 
@@ -425,7 +425,7 @@ public final class OffHeapColumnVector extends ColumnVector {
   }
 
   @Override
-  public void loadBytes(ColumnVector.Array array) {
+  public void loadBytes(ColumnVectorBase.Array array) {
     if (array.tmpByteArray.length < array.length) array.tmpByteArray = new byte[array.length];
     Platform.copyMemory(
         null, data + array.offset, array.tmpByteArray, Platform.BYTE_ARRAY_OFFSET, array.length);

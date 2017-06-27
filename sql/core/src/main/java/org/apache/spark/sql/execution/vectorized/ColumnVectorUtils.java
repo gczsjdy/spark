@@ -40,7 +40,7 @@ public class ColumnVectorUtils {
   /**
    * Populates the entire `col` with `row[fieldIdx]`
    */
-  public static void populate(ColumnVector col, InternalRow row, int fieldIdx) {
+  public static void populate(ColumnVectorBase col, InternalRow row, int fieldIdx) {
     int capacity = col.capacity;
     DataType t = col.dataType();
 
@@ -98,11 +98,11 @@ public class ColumnVectorUtils {
    * For example, an array of IntegerType will return an int[].
    * Throws exceptions for unhandled schemas.
    */
-  public static Object toPrimitiveJavaArray(ColumnVector.Array array) {
+  public static Object toPrimitiveJavaArray(ColumnVectorBase.Array array) {
     DataType dt = array.data.dataType();
     if (dt instanceof IntegerType) {
       int[] result = new int[array.length];
-      ColumnVector data = array.data;
+      ColumnVectorBase data = array.data;
       for (int i = 0; i < result.length; i++) {
         if (data.isNullAt(array.offset + i)) {
           throw new RuntimeException("Cannot handle NULL values.");
@@ -115,57 +115,7 @@ public class ColumnVectorUtils {
     }
   }
 
-  private static void appendValue(ColumnVector dst, DataType t, Object o) {
-    if (o == null) {
-      if (t instanceof CalendarIntervalType) {
-        dst.appendStruct(true);
-      } else {
-        dst.appendNull();
-      }
-    } else {
-      if (t == DataTypes.BooleanType) {
-        dst.appendBoolean(((Boolean)o).booleanValue());
-      } else if (t == DataTypes.ByteType) {
-        dst.appendByte(((Byte) o).byteValue());
-      } else if (t == DataTypes.ShortType) {
-        dst.appendShort(((Short)o).shortValue());
-      } else if (t == DataTypes.IntegerType) {
-        dst.appendInt(((Integer)o).intValue());
-      } else if (t == DataTypes.LongType) {
-        dst.appendLong(((Long)o).longValue());
-      } else if (t == DataTypes.FloatType) {
-        dst.appendFloat(((Float)o).floatValue());
-      } else if (t == DataTypes.DoubleType) {
-        dst.appendDouble(((Double)o).doubleValue());
-      } else if (t == DataTypes.StringType) {
-        byte[] b =((String)o).getBytes(StandardCharsets.UTF_8);
-        dst.appendByteArray(b, 0, b.length);
-      } else if (t instanceof DecimalType) {
-        DecimalType dt = (DecimalType) t;
-        Decimal d = Decimal.apply((BigDecimal) o, dt.precision(), dt.scale());
-        if (dt.precision() <= Decimal.MAX_INT_DIGITS()) {
-          dst.appendInt((int) d.toUnscaledLong());
-        } else if (dt.precision() <= Decimal.MAX_LONG_DIGITS()) {
-          dst.appendLong(d.toUnscaledLong());
-        } else {
-          final BigInteger integer = d.toJavaBigDecimal().unscaledValue();
-          byte[] bytes = integer.toByteArray();
-          dst.appendByteArray(bytes, 0, bytes.length);
-        }
-      } else if (t instanceof CalendarIntervalType) {
-        CalendarInterval c = (CalendarInterval)o;
-        dst.appendStruct(false);
-        dst.getChildColumn(0).appendInt(c.months);
-        dst.getChildColumn(1).appendLong(c.microseconds);
-      } else if (t instanceof DateType) {
-        dst.appendInt(DateTimeUtils.fromJavaDate((Date)o));
-      } else {
-        throw new UnsupportedOperationException("Type " + t);
-      }
-    }
-  }
-
-  private static void appendValue(ColumnVector dst, DataType t, Row src, int fieldIdx) {
+  private static void appendValue(ColumnVectorBase dst, DataType t, Row src, int fieldIdx) {
     if (t instanceof ArrayType) {
       ArrayType at = (ArrayType)t;
       if (src.isNullAt(fieldIdx)) {
@@ -209,5 +159,101 @@ public class ColumnVectorUtils {
     }
     batch.setNumRows(n);
     return batch;
+  }
+
+  private static void appendValue(ColumnVectorBase dst, DataType t, Object o) {
+    if (o == null) {
+      if (t instanceof CalendarIntervalType) {
+        dst.appendStruct(true);
+      } else {
+        dst.appendNull();
+      }
+    } else {
+      if (t == DataTypes.BooleanType) {
+        dst.appendBoolean(((Boolean)o).booleanValue());
+      } else if (t == DataTypes.ByteType) {
+        dst.appendByte(((Byte) o).byteValue());
+      } else if (t == DataTypes.ShortType) {
+        dst.appendShort(((Short)o).shortValue());
+      } else if (t == DataTypes.IntegerType) {
+        dst.appendInt(((Integer)o).intValue());
+      } else if (t == DataTypes.LongType) {
+        dst.appendLong(((Long)o).longValue());
+      } else if (t == DataTypes.FloatType) {
+        dst.appendFloat(((Float)o).floatValue());
+      } else if (t == DataTypes.DoubleType) {
+        dst.appendDouble(((Double)o).doubleValue());
+      } else if (t == DataTypes.StringType) {
+        byte[] b;
+        if (o.getClass() == UTF8String.class)
+          b = ((UTF8String)o).getBytes();
+        else
+          b =((String)o).getBytes(StandardCharsets.UTF_8);
+        dst.appendByteArray(b, 0, b.length);
+      } else if (t instanceof DecimalType) {
+        DecimalType dt = (DecimalType) t;
+        Decimal d = Decimal.apply((BigDecimal) o, dt.precision(), dt.scale());
+        if (dt.precision() <= Decimal.MAX_INT_DIGITS()) {
+          dst.appendInt((int) d.toUnscaledLong());
+        } else if (dt.precision() <= Decimal.MAX_LONG_DIGITS()) {
+          dst.appendLong(d.toUnscaledLong());
+        } else {
+          final BigInteger integer = d.toJavaBigDecimal().unscaledValue();
+          byte[] bytes = integer.toByteArray();
+          dst.appendByteArray(bytes, 0, bytes.length);
+        }
+      } else if (t instanceof CalendarIntervalType) {
+        CalendarInterval c = (CalendarInterval)o;
+        dst.appendStruct(false);
+        dst.getChildColumn(0).appendInt(c.months);
+        dst.getChildColumn(1).appendLong(c.microseconds);
+      } else if (t instanceof DateType) {
+        dst.appendInt(0);
+      } else {
+        throw new UnsupportedOperationException("Type " + t);
+      }
+    }
+  }
+
+  private static void appendValue(ColumnVectorBase dst, DataType t, InternalRow src, int fieldIdx) {
+    if (t instanceof ArrayType) {
+      ArrayType at = (ArrayType) t;
+      if (src.isNullAt(fieldIdx)) {
+        dst.appendNull();
+      }
+    }else {
+      appendValue(dst, t, src.get(fieldIdx, t));
+    }
+  }
+
+  /**
+   * Converts an iterator of rows into a single ColumnBatch.
+   */
+  public static Iterator<ColumnarBatchBase> fromInternalRowToBatch(
+          StructType schema, MemoryMode memMode, Iterator<InternalRow> row) {
+
+    return new Iterator<ColumnarBatchBase>() {
+      @Override
+      public boolean hasNext() {
+        return row.hasNext() ;
+      }
+      @Override
+      public ColumnarBatchBase next() {
+        ColumnarBatchBase batch = ColumnarBatchBase.allocate(schema, memMode);
+        int n = 0;
+        while (row.hasNext()) {
+          InternalRow r = row.next();
+          for (int i = 0; i < schema.fields().length; i++) {
+            appendValue(batch.column(i), schema.fields()[i].dataType(), r, i);
+          }
+          n++;
+          if (n >= batch.capacity()) {
+            break;
+          }
+        }
+        batch.setNumRows(n);
+        return batch;
+      }
+    };
   }
 }

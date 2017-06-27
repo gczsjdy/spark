@@ -16,19 +16,19 @@
  */
 package org.apache.spark.sql.execution.vectorized;
 
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
-import java.util.Arrays;
-
 import org.apache.spark.memory.MemoryMode;
 import org.apache.spark.sql.types.*;
 import org.apache.spark.unsafe.Platform;
+
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.Arrays;
 
 /**
  * A column backed by an in memory JVM array. This stores the NULLs as a byte per value
  * and a java array for the values.
  */
-public final class OnHeapColumnVector extends ColumnVector {
+public final class OnHeapColumnVector extends ColumnVectorBase {
 
   private static final boolean bigEndianPlatform =
     ByteOrder.nativeOrder().equals(ByteOrder.BIG_ENDIAN);
@@ -386,7 +386,7 @@ public final class OnHeapColumnVector extends ColumnVector {
   }
 
   @Override
-  public void loadBytes(ColumnVector.Array array) {
+  public void loadBytes(ColumnVectorBase.Array array) {
     array.byteArray = byteData;
     array.byteArrayOffset = array.offset;
   }

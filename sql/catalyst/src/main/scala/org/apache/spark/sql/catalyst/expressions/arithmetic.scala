@@ -17,10 +17,12 @@
 
 package org.apache.spark.sql.catalyst.expressions
 
+import org.apache.spark.memory.MemoryMode
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
 import org.apache.spark.sql.catalyst.expressions.codegen._
 import org.apache.spark.sql.catalyst.util.TypeUtils
+import org.apache.spark.sql.execution.vectorized.{ColumnVectorBase, ColumnarBatchBase}
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.CalendarInterval
 
@@ -95,7 +97,7 @@ case class UnaryPositive(child: Expression)
        1
   """)
 case class Abs(child: Expression)
-    extends UnaryExpression with ExpectsInputTypes with NullIntolerant {
+    extends UnaryExpression with ExpectsInputTypes with NullIntolerant with VectorizedSupport {
 
   override def inputTypes: Seq[AbstractDataType] = Seq(NumericType)
 
@@ -111,6 +113,39 @@ case class Abs(child: Expression)
   }
 
   protected override def nullSafeEval(input: Any): Any = numeric.abs(input)
+
+  override def vectorizedEval(input: ColumnarBatchBase): ColumnVectorBase = {
+    if (!child.isInstanceOf[VectorizedSupport])
+      throw new UnsupportedOperationException("Expression not support vectorization")
+
+    val childWithVectorizedSupport = child.asInstanceOf[VectorizedSupport]
+
+    val original = childWithVectorizedSupport.vectorizedEval(input)
+
+    val size = original.getNumRows
+    val capacity = input.capacity()
+    val result = ColumnVectorBase.allocate(size, DoubleType, MemoryMode.ON_HEAP)
+
+    result.setNumRows(size)
+
+    val tmpArray = new Array[Double](result.getNumRows)
+
+    (0 until result.getNumRows).foreach { row =>
+      tmpArray(row) = result.getDouble(row)
+    }
+    hotSpot(result, tmpArray)
+    (0 until result.getNumRows).foreach { row =>
+      result.putDouble(row, tmpArray(row))
+    }
+    result
+  }
+
+  def hotSpot(result: ColumnVectorBase, tmpArray: Array[Double]): Unit = {
+    (0 until result.getNumRows).foreach { row =>
+          tmpArray(row) = math.abs(tmpArray(row))
+    }
+
+  }
 }
 
 abstract class BinaryArithmetic extends BinaryOperator with NullIntolerant {
@@ -146,7 +181,7 @@ object BinaryArithmetic {
       > SELECT 1 _FUNC_ 2;
        3
   """)
-case class Add(left: Expression, right: Expression) extends BinaryArithmetic {
+case class Add(left: Expression, right: Expression) extends BinaryArithmetic with VectorizedSupport{
 
   override def inputType: AbstractDataType = TypeCollection.NumericAndInterval
 
@@ -172,6 +207,49 @@ case class Add(left: Expression, right: Expression) extends BinaryArithmetic {
       defineCodeGen(ctx, ev, (eval1, eval2) => s"$eval1.add($eval2)")
     case _ =>
       defineCodeGen(ctx, ev, (eval1, eval2) => s"$eval1 $symbol $eval2")
+  }
+
+  def vectorizedEval(input: ColumnarBatchBase): ColumnVectorBase = {
+    if (!left.isInstanceOf[VectorizedSupport] || !right.isInstanceOf[VectorizedSupport])
+      throw new UnsupportedOperationException("Expression not support vectorization")
+
+    if (dataType.isInstanceOf[DecimalType] || dataType.isInstanceOf[CalendarIntervalType])
+      throw new UnsupportedOperationException("Datatype not support vectorization")
+
+    val leftWithVectorizedSupport = left.asInstanceOf[VectorizedSupport]
+    val rightWithVectorizedSupport = right.asInstanceOf[VectorizedSupport]
+    val valueLeft = leftWithVectorizedSupport.vectorizedEval(input)
+    val valueRight = rightWithVectorizedSupport.vectorizedEval(input)
+
+    val size = valueLeft.getNumRows
+    val capacity = input.capacity()
+    val result = ColumnVectorBase.allocate(size, left.dataType, MemoryMode.ON_HEAP)
+    result.setNumRows(size)
+    addColumnVector(result, valueLeft, valueRight)
+    result
+  }
+
+  def addColumnVector(result: ColumnVectorBase, left: ColumnVectorBase, right: ColumnVectorBase) = {
+    left.dataType() match {
+      case ByteType =>
+        (0 until left.getNumRows).foreach(row => result.putByte(
+          row, (left.getByte(row) + right.getByte(row)).toByte))
+      case ShortType =>
+        (0 until left.getNumRows).foreach(row => result.putShort(
+          row, (left.getShort(row) + right.getShort(row)).toShort))
+      case IntegerType =>
+        (0 until left.getNumRows).foreach(row => result.putInt(
+          row, left.getInt(row) + right.getInt(row)))
+      case LongType =>
+        (0 until left.getNumRows).foreach(row => result.putLong(
+          row, left.getLong(row) + right.getLong(row)))
+      case FloatType =>
+        (0 until left.getNumRows).foreach(row => result.putFloat(
+          row, left.getFloat(row) + right.getFloat(row)))
+      case DoubleType =>
+        (0 until left.getNumRows).foreach(row => result.putDouble(
+          row, left.getDouble(row) + right.getDouble(row)))
+    }
   }
 }
 
@@ -218,7 +296,7 @@ case class Subtract(left: Expression, right: Expression) extends BinaryArithmeti
       > SELECT 2 _FUNC_ 3;
        6
   """)
-case class Multiply(left: Expression, right: Expression) extends BinaryArithmetic {
+case class Multiply(left: Expression, right: Expression) extends BinaryArithmetic with VectorizedSupport {
 
   override def inputType: AbstractDataType = NumericType
 
@@ -228,6 +306,49 @@ case class Multiply(left: Expression, right: Expression) extends BinaryArithmeti
   private lazy val numeric = TypeUtils.getNumeric(dataType)
 
   protected override def nullSafeEval(input1: Any, input2: Any): Any = numeric.times(input1, input2)
+  
+  def vectorizedEval(input: ColumnarBatchBase): ColumnVectorBase = {
+    if (!left.isInstanceOf[VectorizedSupport] || !right.isInstanceOf[VectorizedSupport])
+      throw new UnsupportedOperationException("Expression not support vectorization")
+
+    if (dataType.isInstanceOf[DecimalType] || dataType.isInstanceOf[CalendarIntervalType])
+      throw new UnsupportedOperationException("Datatype not support vectorization")
+
+    val leftWithVectorizedSupport = left.asInstanceOf[VectorizedSupport]
+    val rightWithVectorizedSupport = right.asInstanceOf[VectorizedSupport]
+    val valueLeft = leftWithVectorizedSupport.vectorizedEval(input)
+    val valueRight = rightWithVectorizedSupport.vectorizedEval(input)
+
+    val size = valueLeft.getNumRows
+    val capacity = input.capacity()
+    val result = valueLeft
+    result.setNumRows(size)
+    multiplyToLeftColumnVector(result, valueRight)
+    result
+  }
+
+  def multiplyToLeftColumnVector(left: ColumnVectorBase, right: ColumnVectorBase) = {
+    left.dataType() match {
+      case ByteType =>
+        (0 until left.getNumRows).foreach(row => left.putByte(
+          row, (left.getByte(row) * right.getByte(row)).toByte))
+      case ShortType =>
+        (0 until left.getNumRows).foreach(row => left.putShort(
+          row, (left.getShort(row) * right.getShort(row)).toShort))
+      case IntegerType =>
+        (0 until left.getNumRows).foreach(row => left.putInt(
+          row, left.getInt(row) * right.getInt(row)))
+      case LongType =>
+        (0 until left.getNumRows).foreach(row => left.putLong(
+          row, left.getLong(row) * right.getLong(row)))
+      case FloatType =>
+        (0 until left.getNumRows).foreach(row => left.putFloat(
+          row, left.getFloat(row) * right.getFloat(row)))
+      case DoubleType =>
+        (0 until left.getNumRows).foreach(row => left.putDouble(
+          row, left.getDouble(row) * right.getDouble(row)))
+    }
+  }
 }
 
 // scalastyle:off line.size.limit

@@ -23,6 +23,7 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
 import org.apache.spark.sql.catalyst.expressions.codegen._
 import org.apache.spark.sql.catalyst.trees.TreeNode
+import org.apache.spark.sql.execution.vectorized.{ColumnVectorBase, ColumnarBatchBase}
 import org.apache.spark.sql.types._
 import org.apache.spark.util.Utils
 
@@ -628,6 +629,50 @@ abstract class TernaryExpression extends Expression {
         ${rightGen.code}
         ${ctx.javaType(dataType)} ${ev.value} = ${ctx.defaultValue(dataType)};
         $resultCode""", isNull = "false")
+    }
+  }
+}
+
+trait VectorizedSupport extends Expression{
+  def vectorizedEval(input: ColumnarBatchBase): ColumnVectorBase
+}
+
+trait VectorizedUnaryMathSupport extends UnaryMathExpression with VectorizedSupport {
+  override def vectorizedEval(input: ColumnarBatchBase): ColumnVectorBase = {
+    if (!child.isInstanceOf[VectorizedSupport])
+      throw new UnsupportedOperationException("Expression not support vectorization")
+
+    val childWithVectorizedSupport = child.asInstanceOf[VectorizedSupport]
+
+    val original = childWithVectorizedSupport.vectorizedEval(input)
+
+    val size = original.getNumRows
+    val capacity = input.capacity()
+    val result = original
+
+    //    The logic before
+    //    (0 until size).foreach { row =>
+    //      result.putDouble(row, f(result.getDouble(row)))
+    //    }
+
+    val tmpArray = new Array[Double](result.getNumRows)
+
+    (0 until result.getNumRows).foreach { row =>
+      tmpArray(row) = result.getDouble(row)
+    }
+
+    hotSpot(result, tmpArray)
+
+    (0 until result.getNumRows).foreach { row =>
+      result.putDouble(row, tmpArray(row))
+    }
+    result
+  }
+
+  def hotSpot(result: ColumnVectorBase, tmpArray: Array[Double]): Unit = {
+    (0 until result.getNumRows).foreach { row =>
+      // f is the specific math function like math.sqrt, math.sin, math.log, etc.
+      tmpArray(row) = f(tmpArray(row))
     }
   }
 }

@@ -17,11 +17,13 @@
 
 package org.apache.spark.sql.execution
 
+import org.apache.spark.memory.MemoryMode
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Attribute, UnsafeProjection}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, UnsafeProjection, VectorizedInterpretedProjection}
 import org.apache.spark.sql.execution.metric.SQLMetrics
-
+import org.apache.spark.sql.execution.vectorized.{ColumnVectorBase, ColumnVectorUtils, ColumnarBatch, ColumnarBatchBase}
+import collection.JavaConverters._
 
 /**
  * Physical plan node for scanning data from a local collection.

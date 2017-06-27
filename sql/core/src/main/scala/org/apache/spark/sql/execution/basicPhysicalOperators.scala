@@ -17,20 +17,25 @@
 
 package org.apache.spark.sql.execution
 
+import org.apache.spark.memory.MemoryMode
+
 import scala.concurrent.{ExecutionContext, Future}
 import scala.concurrent.duration.Duration
-
-import org.apache.spark.{InterruptibleIterator, SparkException, TaskContext}
+import org.apache.spark.{InterruptibleIterator, SparkEnv, SparkException, TaskContext}
 import org.apache.spark.rdd.{PartitionwiseSampledRDD, RDD}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode, ExpressionCanonicalizer}
 import org.apache.spark.sql.catalyst.plans.physical._
 import org.apache.spark.sql.execution.metric.SQLMetrics
-import org.apache.spark.sql.execution.ui.SparkListenerDriverAccumUpdates
-import org.apache.spark.sql.types.LongType
+import org.apache.spark.sql.execution.vectorized.{ColumnVectorBase, ColumnVectorUtils, ColumnarBatchBase}
+import org.apache.spark.sql.types.{LongType, StructType}
 import org.apache.spark.util.ThreadUtils
 import org.apache.spark.util.random.{BernoulliCellSampler, PoissonSampler}
+import org.apache.spark.sql.catalyst.expressions.VectorizedInterpretedProjection
+
+import collection.JavaConverters._
+
 
 /** Physical plan for Project. */
 case class ProjectExec(projectList: Seq[NamedExpression], child: SparkPlan)
@@ -70,11 +75,50 @@ case class ProjectExec(projectList: Seq[NamedExpression], child: SparkPlan)
   }
 
   protected override def doExecute(): RDD[InternalRow] = {
-    child.execute().mapPartitionsWithIndexInternal { (index, iter) =>
-      val project = UnsafeProjection.create(projectList, child.output,
-        subexpressionEliminationEnabled)
-      project.initialize(index)
-      iter.map(project)
+
+    def allSupportVectorized(e: Expression): Boolean = {
+      if (e.isInstanceOf[LeafExpression])
+        true
+      else {
+        e.isInstanceOf[VectorizedSupport] && e.children.forall(allSupportVectorized(_))
+      }
+    }
+    if (projectList.forall(allSupportVectorized(_))) {
+      //Convert InternalRows to ColumnarBatch
+      val columnarBatch: RDD[ColumnarBatchBase] = child.execute().mapPartitions[ColumnarBatchBase]{
+        (iter) => ColumnVectorUtils.fromInternalRowToBatch(
+          StructType.fromAttributes(child.output), MemoryMode.ON_HEAP, iter.asJava
+        ).asScala
+      }
+
+      val projection = new VectorizedInterpretedProjection(projectList, child.output)
+
+      //Apply Vectorized projection expression by calling VectorizedEval in expressions
+      val projectResult: RDD[Seq[ColumnVectorBase]] = columnarBatch.map[Seq[ColumnVectorBase]](
+        x => projection(x))
+
+      val resColumnarBatch = ColumnarBatchBase.allocate(schema)
+
+      //Form the complete result columnar batch using ColumnVectors after projection
+      val resultColumnarBatch: RDD[ColumnarBatchBase] = projectResult.map[ColumnarBatchBase]{
+        seqColumnVector =>
+          (0 until projectList.length).foreach(i => resColumnarBatch.setColumn(i, seqColumnVector(i)))
+          resColumnarBatch.setNumRows(seqColumnVector(0).getNumRows)
+          resColumnarBatch
+      }
+      //Convert ColumnarBatch to InternalRows so as to return
+      resultColumnarBatch.flatMap(_.rowIterator().asScala.toSeq).mapPartitionsWithIndexInternal {(index, iter) =>
+        val converter = UnsafeProjection.create(schema)
+        converter.initialize(index)
+        iter.map(converter)
+      }
+    } else {
+      child.execute().mapPartitionsWithIndexInternal { (index, iter) =>
+        val project = UnsafeProjection.create(projectList, child.output,
+          subexpressionEliminationEnabled)
+        project.initialize(index)
+        iter.map(project)
+      }
     }
   }
 
