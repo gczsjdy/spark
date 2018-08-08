@@ -17,18 +17,18 @@
 
 package org.apache.spark.sql.execution.joins
 
+import scala.collection.mutable.ArrayBuffer
+
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
-import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 import org.apache.spark.sql.catalyst.expressions.codegen._
+import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 import org.apache.spark.sql.catalyst.plans._
 import org.apache.spark.sql.catalyst.plans.physical._
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.util.collection.BitSet
-
-import scala.collection.mutable.ArrayBuffer
 
 /**
  * Performs a sort merge join of two child relations.
@@ -70,7 +70,7 @@ case class SortMergeJoinExec(
     // For left and right outer joins, the output is partitioned by the streamed input's join keys.
     case LeftOuter => left.outputPartitioning
     case RightOuter => right.outputPartitioning
-    case FullOuter => {
+    case FullOuter =>
       // The output of Full Outer Join is similar to pure HashPartioning, except for NULL, which
       // is the only key not co-partitioned
       val l = left.outputPartitioning match {
@@ -82,7 +82,6 @@ case class SortMergeJoinExec(
         case p: Partitioning => p
       }
       PartitioningCollection(Seq(l, r))
-    }
     case LeftExistence(_) => left.outputPartitioning
     case x =>
       throw new IllegalArgumentException(
