@@ -20,6 +20,7 @@ package org.apache.spark.shuffle.sort.io;
 import java.util.Optional;
 
 import org.apache.spark.shuffle.api.metadata.MapOutputMetadata;
+import org.apache.spark.shuffle.api.metadata.ShuffleBlockMetadata;
 import org.apache.spark.shuffle.api.metadata.ShuffleMetadata;
 import org.apache.spark.shuffle.api.metadata.ShuffleOutputTracker;
 import org.apache.spark.storage.BlockManagerMaster;
@@ -51,5 +52,10 @@ public final class LocalDiskShuffleOutputTracker implements ShuffleOutputTracker
   @Override
   public Optional<ShuffleMetadata> getShuffleMetadata(int shuffleId) {
     return Optional.empty();
+  }
+
+  @Override
+  public boolean isMapOutputAvailableExternally(int shuffleId, int mapId, long mapTaskAttemptId) {
+    return false;
   }
 }
